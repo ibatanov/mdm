@@ -51,10 +51,10 @@ func NewDictionaryRepository(db *sql.DB) *DictionaryRepository {
 
 func (r *DictionaryRepository) Create(ctx context.Context, input CreateDictionaryInput) (Dictionary, error) {
 	const query = `
-INSERT INTO dictionaries (code, name, description)
-VALUES ($1, $2, $3)
-RETURNING id::text, code, name, description, schema_version
-`
+		INSERT INTO dictionaries (code, name, description)
+		VALUES ($1, $2, $3)
+		RETURNING id::text, code, name, description, schema_version
+	`
 	row := r.db.QueryRowContext(ctx, query, input.Code, input.Name, input.Description)
 	result, err := scanDictionary(row)
 	if err != nil {
@@ -68,7 +68,12 @@ RETURNING id::text, code, name, description, schema_version
 
 func (r *DictionaryRepository) List(ctx context.Context, limit, offset int) (ListResult, error) {
 	const dataQuery = `
-		SELECT id::text, code, name, description, schema_version
+		SELECT
+			id::text,
+			code,
+			name,
+			description,
+			schema_version
 		FROM dictionaries
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -92,7 +97,11 @@ func (r *DictionaryRepository) List(ctx context.Context, limit, offset int) (Lis
 	}
 
 	var total int64
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM dictionaries`).Scan(&total); err != nil {
+	const countQuery = `
+		SELECT COUNT(*)
+		FROM dictionaries
+	`
+	if err := r.db.QueryRowContext(ctx, countQuery).Scan(&total); err != nil {
 		return ListResult{}, fmt.Errorf("count dictionaries: %w", err)
 	}
 
@@ -106,10 +115,15 @@ func (r *DictionaryRepository) List(ctx context.Context, limit, offset int) (Lis
 
 func (r *DictionaryRepository) GetByID(ctx context.Context, id string) (Dictionary, error) {
 	const query = `
-SELECT id::text, code, name, description, schema_version
-FROM dictionaries
-WHERE id = $1
-`
+		SELECT
+			id::text,
+			code,
+			name,
+			description,
+			schema_version
+		FROM dictionaries
+		WHERE id = $1
+	`
 	row := r.db.QueryRowContext(ctx, query, id)
 	item, err := scanDictionary(row)
 	if err != nil {
@@ -141,11 +155,11 @@ func (r *DictionaryRepository) UpdateByID(ctx context.Context, id string, input 
 	args = append(args, id)
 
 	query := fmt.Sprintf(`
-UPDATE dictionaries
-SET %s
-WHERE id = $%d
-RETURNING id::text, code, name, description, schema_version
-`, strings.Join(setParts, ", "), nextArg)
+		UPDATE dictionaries
+		SET %s
+		WHERE id = $%d
+		RETURNING id::text, code, name, description, schema_version
+	`, strings.Join(setParts, ", "), nextArg)
 
 	row := r.db.QueryRowContext(ctx, query, args...)
 	item, err := scanDictionary(row)
@@ -163,7 +177,11 @@ RETURNING id::text, code, name, description, schema_version
 }
 
 func (r *DictionaryRepository) DeleteByID(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM dictionaries WHERE id = $1`, id)
+	const deleteQuery = `
+		DELETE FROM dictionaries
+		WHERE id = $1
+	`
+	result, err := r.db.ExecContext(ctx, deleteQuery, id)
 	if err != nil {
 		if isConflictError(err) {
 			return ErrConflict

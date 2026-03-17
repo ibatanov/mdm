@@ -47,31 +47,31 @@ func (r *AuditRepository) Write(ctx context.Context, record AuditRecord) error {
 	}
 
 	const query = `
-INSERT INTO audit_events (
-  event_id,
-  request_id,
-  actor_user_id,
-  action,
-  entity_type,
-  entity_id,
-  dictionary_id,
-  before_state,
-  after_state,
-  metadata
-)
-VALUES (
-  uuid_generate_v4(),
-  $1::uuid,
-  $2::uuid,
-  $3,
-  $4,
-  $5::uuid,
-  $6::uuid,
-  $7::jsonb,
-  $8::jsonb,
-  $9::jsonb
-)
-`
+		INSERT INTO audit_events (
+			event_id,
+			request_id,
+			actor_user_id,
+			action,
+			entity_type,
+			entity_id,
+			dictionary_id,
+			before_state,
+			after_state,
+			metadata
+		)
+		VALUES (
+			uuid_generate_v4(),
+			$1::uuid,
+			$2::uuid,
+			$3,
+			$4,
+			$5::uuid,
+			$6::uuid,
+			$7::jsonb,
+			$8::jsonb,
+			$9::jsonb
+		)
+	`
 	_, err = r.db.ExecContext(
 		ctx,
 		query,
@@ -93,12 +93,12 @@ VALUES (
 
 func (r *AuditRepository) ensureUser(ctx context.Context, externalID string) (string, error) {
 	const query = `
-INSERT INTO users (external_id)
-VALUES ($1)
-ON CONFLICT (external_id)
-DO UPDATE SET updated_at = now()
-RETURNING id::text
-`
+		INSERT INTO users (external_id)
+		VALUES ($1)
+		ON CONFLICT (external_id)
+		DO UPDATE SET updated_at = now()
+		RETURNING id::text
+	`
 	var userID string
 	if err := r.db.QueryRowContext(ctx, query, externalID).Scan(&userID); err != nil {
 		return "", err
