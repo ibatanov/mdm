@@ -242,7 +242,20 @@ func (r *EntryRepository) DeleteByID(ctx context.Context, dictionaryID, entryID 
 }
 
 func (r *EntryRepository) SearchByDictionaryID(ctx context.Context, input SearchEntriesInput) (ListEntriesResult, error) {
-	whereClause, whereArgs, nextArg, err := buildEntriesSearchWhere(input.DictionaryID, input.Filters)
+	normalizedFilters, forceEmpty, err := r.normalizeSearchFilters(ctx, input.DictionaryID, input.Filters)
+	if err != nil {
+		return ListEntriesResult{}, err
+	}
+	if forceEmpty {
+		return ListEntriesResult{
+			Items:  []Entry{},
+			Total:  0,
+			Limit:  input.Limit,
+			Offset: input.Offset,
+		}, nil
+	}
+
+	whereClause, whereArgs, nextArg, err := buildEntriesSearchWhere(input.DictionaryID, normalizedFilters)
 	if err != nil {
 		return ListEntriesResult{}, err
 	}

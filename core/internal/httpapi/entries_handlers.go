@@ -62,7 +62,15 @@ func (h *Handler) handleCreateEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.auditEntryEvent(r, "entry.created", dictionaryID, item.ID, nil, item)
-	writeData(w, r, http.StatusCreated, item)
+
+	resolvedItem, err := h.entries.ResolveEntry(r.Context(), item)
+	if err != nil {
+		h.logger.Error("resolve created entry references failed", "dictionary_id", dictionaryID, "entry_id", item.ID, "error", err)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "Internal server error", nil)
+		return
+	}
+
+	writeData(w, r, http.StatusCreated, resolvedItem)
 }
 
 func (h *Handler) handleListEntries(w http.ResponseWriter, r *http.Request) {
@@ -89,7 +97,14 @@ func (h *Handler) handleListEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, r, http.StatusOK, result)
+	resolvedResult, err := h.entries.ResolveListEntriesResult(r.Context(), result)
+	if err != nil {
+		h.logger.Error("resolve listed entries references failed", "dictionary_id", dictionaryID, "error", err)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "Internal server error", nil)
+		return
+	}
+
+	writeData(w, r, http.StatusOK, resolvedResult)
 }
 
 func (h *Handler) handleGetEntry(w http.ResponseWriter, r *http.Request) {
@@ -124,7 +139,14 @@ func (h *Handler) handleGetEntry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, r, http.StatusOK, item)
+	resolvedItem, err := h.entries.ResolveEntry(r.Context(), item)
+	if err != nil {
+		h.logger.Error("resolve entry references failed", "dictionary_id", dictionaryID, "entry_id", entryID, "error", err)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "Internal server error", nil)
+		return
+	}
+
+	writeData(w, r, http.StatusOK, resolvedItem)
 }
 
 func (h *Handler) handleUpdateEntry(w http.ResponseWriter, r *http.Request) {
@@ -206,7 +228,15 @@ func (h *Handler) handleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.auditEntryEvent(r, "entry.updated", dictionaryID, entryID, before, updated)
-	writeData(w, r, http.StatusOK, updated)
+
+	resolvedUpdated, err := h.entries.ResolveEntry(r.Context(), updated)
+	if err != nil {
+		h.logger.Error("resolve updated entry references failed", "dictionary_id", dictionaryID, "entry_id", entryID, "error", err)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "Internal server error", nil)
+		return
+	}
+
+	writeData(w, r, http.StatusOK, resolvedUpdated)
 }
 
 func (h *Handler) handleDeleteEntry(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +369,14 @@ func (h *Handler) handleSearchEntries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeData(w, r, http.StatusOK, result)
+	resolvedResult, err := h.entries.ResolveListEntriesResult(r.Context(), result)
+	if err != nil {
+		h.logger.Error("resolve searched entries references failed", "dictionary_id", dictionaryID, "error", err)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "Internal server error", nil)
+		return
+	}
+
+	writeData(w, r, http.StatusOK, resolvedResult)
 }
 
 func (h *Handler) ensureDictionaryExists(w http.ResponseWriter, r *http.Request, dictionaryID string) bool {

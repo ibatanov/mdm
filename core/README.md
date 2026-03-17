@@ -70,6 +70,22 @@ curl -X POST http://localhost:8080/api/v1/dictionaries \
 ```bash
 make test
 ```
+- Поднять только тестовое окружение (без запуска тестов):
+```bash
+make test-env-up
+```
+- Проверить статус тестового окружения:
+```bash
+make test-env-ps
+```
+- Остановить тестовое окружение (с сохранением данных):
+```bash
+make test-env-down
+```
+- Полностью очистить тестовое окружение (включая volume-данные):
+```bash
+make test-env-reset
+```
 - Integration тесты (реальный Postgres в Docker):
 ```bash
 make test-integration
