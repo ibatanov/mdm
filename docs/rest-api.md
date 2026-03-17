@@ -14,6 +14,11 @@
 - `X-User-Id` — id пользователя, например `X-User-Id: 100`.
 - `X-User-Role` — роли через запятую, например `X-User-Role: mdm_admin,mdm_editor`.
 
+### Трассировка запроса
+- `X-Request-Id` обязателен для всех запросов к `/api/v1/*`.
+- Значение `X-Request-Id` должно быть валидным UUID.
+- При отсутствии/невалидном значении возвращается `400 invalid_request`.
+
 ### Роли (MVP)
 - `mdm_admin` — полный административный доступ, включая управление ролями.
 - `mdm_editor` — изменение справочников, атрибутов, схемы и объектов.
@@ -119,6 +124,10 @@ GET /dictionaries?limit=50&offset=0
 }
 ```
 
+Дополнительно:
+- `data_type` поддерживает значения: `string`, `number`, `date`, `boolean`, `enum`, `reference`.
+- Для `data_type=reference` поле `ref_dictionary_id` обязательно и должно быть UUID.
+
 ## Схема справочника (разрешенные атрибуты)
 - `PUT /dictionaries/{dictionary_id}/schema`
 - `GET /dictionaries/{dictionary_id}/schema`
@@ -146,6 +155,9 @@ GET /dictionaries?limit=50&offset=0
   ]
 }
 ```
+
+Примечание:
+- Поле `attributes` в `PUT /dictionaries/{dictionary_id}/schema` является обязательным (может быть пустым массивом для очистки схемы).
 
 ## Объекты справочника
 - `POST /dictionaries/{dictionary_id}/entries`

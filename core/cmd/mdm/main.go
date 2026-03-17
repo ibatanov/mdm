@@ -42,9 +42,11 @@ func main() {
 
 	kafkaChecker := infra.NewKafkaChecker(cfg.KafkaBrokers)
 	dictionaries := store.NewDictionaryRepository(db)
+	attributes := store.NewAttributeRepository(db)
+	schemas := store.NewDictionarySchemaRepository(db)
 	audit := store.NewAuditRepository(db)
 
-	handler := httpapi.NewHandler(logger, db, kafkaChecker, dictionaries, audit)
+	handler := httpapi.NewHandler(logger, db, kafkaChecker, dictionaries, attributes, schemas, audit)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

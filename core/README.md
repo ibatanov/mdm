@@ -12,9 +12,20 @@
 - `GET /api/v1/dictionaries/{dictionary_id}`
 - `PATCH /api/v1/dictionaries/{dictionary_id}`
 - `DELETE /api/v1/dictionaries/{dictionary_id}`
+- Базовый CRUD `attributes`:
+- `POST /api/v1/attributes`
+- `GET /api/v1/attributes`
+- `GET /api/v1/attributes/{attribute_id}`
+- `PATCH /api/v1/attributes/{attribute_id}`
+- `DELETE /api/v1/attributes/{attribute_id}`
+- Управление схемой справочника:
+- `GET /api/v1/dictionaries/{dictionary_id}/schema`
+- `PUT /api/v1/dictionaries/{dictionary_id}/schema`
 - Контракт аутентификации через gateway заголовки:
 - `X-User-Id: 100`
 - `X-User-Role: mdm_admin,mdm_editor`
+- Контракт трассировки запросов:
+- `X-Request-Id: <uuid>` (обязателен для `/api/v1/*`, иначе `400 invalid_request`)
 
 ## Быстрый запуск
 1. Поднять инфраструктуру:
