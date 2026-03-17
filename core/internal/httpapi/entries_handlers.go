@@ -33,6 +33,18 @@ func (h *Handler) handleCreateEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	externalKey := normalizeOptionalString(req.ExternalKey)
+	if err := h.entries.ValidateData(r.Context(), dictionaryID, req.Data, nil); err != nil {
+		if validationErr, ok := store.IsEntryValidationError(err); ok {
+			writeError(w, r, http.StatusUnprocessableEntity, "validation_failed", "Entry data does not match dictionary schema", map[string]any{
+				"issues": validationErr.Issues,
+			})
+			return
+		}
+		h.logger.Error("validate entry data failed", "dictionary_id", dictionaryID, "error", err)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "Internal server error", nil)
+		return
+	}
+
 	item, err := h.entries.Create(r.Context(), store.CreateEntryInput{
 		DictionaryID: dictionaryID,
 		ExternalKey:  externalKey,
@@ -160,6 +172,18 @@ func (h *Handler) handleUpdateEntry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mergedData := mergeEntryData(before.Data, req.Data)
+	if err := h.entries.ValidateData(r.Context(), dictionaryID, mergedData, &entryID); err != nil {
+		if validationErr, ok := store.IsEntryValidationError(err); ok {
+			writeError(w, r, http.StatusUnprocessableEntity, "validation_failed", "Entry data does not match dictionary schema", map[string]any{
+				"issues": validationErr.Issues,
+			})
+			return
+		}
+		h.logger.Error("validate entry data before update failed", "dictionary_id", dictionaryID, "entry_id", entryID, "error", err)
+		writeError(w, r, http.StatusInternalServerError, "internal_error", "Internal server error", nil)
+		return
+	}
+
 	updated, err := h.entries.UpdateByID(r.Context(), store.UpdateEntryInput{
 		DictionaryID: dictionaryID,
 		EntryID:      entryID,
@@ -374,6 +398,10 @@ func mergeEntryData(base, patch map[string]any) map[string]any {
 		result[key] = value
 	}
 	for key, value := range patch {
+		if value == nil {
+			delete(result, key)
+			continue
+		}
 		result[key] = value
 	}
 	return result

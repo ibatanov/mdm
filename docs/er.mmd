@@ -1,30 +1,5 @@
 %% ER диаграмма: справочники, атрибуты, объекты, outbox
 erDiagram
-  USERS {
-    uuid id PK
-    text external_id
-    text email
-    boolean is_active
-    timestamptz created_at
-    timestamptz updated_at
-  }
-
-  ROLES {
-    uuid id PK
-    text code
-    text name
-    text description
-    timestamptz created_at
-    timestamptz updated_at
-  }
-
-  USER_ROLES {
-    uuid user_id FK
-    uuid role_id FK
-    uuid granted_by FK
-    timestamptz granted_at
-  }
-
   DICTIONARIES {
     uuid id PK
     text code
@@ -83,7 +58,7 @@ erDiagram
   }
 
   OUTBOX_EVENTS {
-    bigint id PK
+    uuid id PK
     uuid event_id
     text aggregate_type
     uuid aggregate_id
@@ -94,10 +69,10 @@ erDiagram
   }
 
   AUDIT_EVENTS {
-    bigint id PK
+    uuid id PK
     uuid event_id
     uuid request_id
-    uuid actor_user_id FK
+    text actor_external_id
     text actor_type
     text action
     text entity_type
@@ -109,14 +84,10 @@ erDiagram
     jsonb metadata
   }
 
-  USERS ||--o{ USER_ROLES : has
-  ROLES ||--o{ USER_ROLES : assigned
-  USERS ||--o{ USER_ROLES : grants
   DICTIONARIES ||--o{ DICTIONARY_ATTRIBUTES : has
   ATTRIBUTES ||--o{ DICTIONARY_ATTRIBUTES : uses
   DICTIONARIES ||--o{ ENTRIES : contains
   DICTIONARIES ||--o{ ATTRIBUTES : references
   ENTRIES ||--o{ ENTRY_VALUES : has
   ATTRIBUTES ||--o{ ENTRY_VALUES : values
-  USERS ||--o{ AUDIT_EVENTS : performs
   DICTIONARIES ||--o{ AUDIT_EVENTS : scoped

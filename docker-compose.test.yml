@@ -1,0 +1,19 @@
+name: mdm-test
+
+services:
+  postgres-test:
+    image: ${POSTGRES_TEST_IMAGE:-postgres:18.3}
+    container_name: mdm-postgres-test
+    environment:
+      POSTGRES_DB: ${POSTGRES_TEST_DB:-mdm_test}
+      POSTGRES_USER: ${POSTGRES_TEST_USER:-mdm_test}
+      POSTGRES_PASSWORD: ${POSTGRES_TEST_PASSWORD:-mdm_test}
+    ports:
+      - "${POSTGRES_TEST_PORT:-55432}:5432"
+    volumes:
+      - ./infra/volumes/postgres-test:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_TEST_USER:-mdm_test} -d ${POSTGRES_TEST_DB:-mdm_test}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

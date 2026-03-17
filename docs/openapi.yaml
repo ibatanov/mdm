@@ -1,8 +1,11 @@
 openapi: 3.0.3
 info:
   title: MDM/PIM API (MVP)
-  version: 0.2.0
-  description: Черновик спецификации REST API для MDM/PIM.
+  version: 0.3.0
+  description: |
+    Актуальная спецификация REST API для MDM/PIM (текущий этап реализации).
+    MDM backend находится за доверенным gateway (Keycloak) и принимает заголовки `X-User-Id` и `X-User-Role`.
+    Заголовок `X-Request-Id` опционален: при отсутствии или невалидном UUID сервер генерирует его автоматически.
 servers:
   - url: /api/v1
 
@@ -12,7 +15,6 @@ tags:
   - name: Schema
   - name: Entries
   - name: Audit
-  - name: Access
 
 security:
   - GatewayUserIdHeader: []
@@ -33,6 +35,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PagedDictionaries'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -81,6 +85,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DictionaryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -129,6 +135,8 @@ paths:
       responses:
         '204':
           description: No Content
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -154,6 +162,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PagedAttributes'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -202,6 +212,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AttributeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -250,6 +262,8 @@ paths:
       responses:
         '204':
           description: No Content
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -274,6 +288,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SchemaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -330,6 +346,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PagedEntries'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -385,6 +403,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -435,12 +455,16 @@ paths:
       responses:
         '204':
           description: No Content
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -485,7 +509,7 @@ paths:
         - $ref: '#/components/parameters/Offset'
         - $ref: '#/components/parameters/EntityType'
         - $ref: '#/components/parameters/EntityId'
-        - $ref: '#/components/parameters/ActorUserId'
+        - $ref: '#/components/parameters/ActorExternalId'
         - $ref: '#/components/parameters/OccurredFrom'
         - $ref: '#/components/parameters/OccurredTo'
       responses:
@@ -501,60 +525,6 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
-        '500':
-          $ref: '#/components/responses/InternalError'
-
-  /users/{user_id}/roles:
-    get:
-      tags: [Access]
-      summary: Получить роли пользователя
-      parameters:
-        - $ref: '#/components/parameters/UserId'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserRolesResponse'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '500':
-          $ref: '#/components/responses/InternalError'
-    put:
-      tags: [Access]
-      summary: Назначить роли пользователю
-      parameters:
-        - $ref: '#/components/parameters/UserId'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UserRolesUpdate'
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserRolesResponse'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '403':
-          $ref: '#/components/responses/Forbidden'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '409':
-          $ref: '#/components/responses/Conflict'
-        '422':
-          $ref: '#/components/responses/ValidationFailed'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -610,13 +580,6 @@ components:
       schema:
         type: string
         format: uuid
-    UserId:
-      name: user_id
-      in: path
-      required: true
-      schema:
-        type: string
-        format: uuid
     EntityType:
       name: entity_type
       in: query
@@ -630,13 +593,12 @@ components:
       schema:
         type: string
         format: uuid
-    ActorUserId:
-      name: actor_user_id
+    ActorExternalId:
+      name: actor_external_id
       in: query
       required: false
       schema:
         type: string
-        format: uuid
     OccurredFrom:
       name: occurred_from
       in: query
@@ -1026,9 +988,8 @@ components:
         request_id:
           type: string
           format: uuid
-        actor_user_id:
+        actor_external_id:
           type: string
-          format: uuid
         actor_type:
           type: string
           enum: [user, service]
@@ -1077,40 +1038,3 @@ components:
           type: integer
         offset:
           type: integer
-
-    Role:
-      type: object
-      properties:
-        code:
-          type: string
-        name:
-          type: string
-
-    UserRoles:
-      type: object
-      properties:
-        user_id:
-          type: string
-          format: uuid
-        roles:
-          type: array
-          items:
-            $ref: '#/components/schemas/Role'
-
-    UserRolesUpdate:
-      type: object
-      required: [role_codes]
-      properties:
-        role_codes:
-          type: array
-          items:
-            type: string
-
-    UserRolesResponse:
-      type: object
-      properties:
-        request_id:
-          type: string
-          format: uuid
-        data:
-          $ref: '#/components/schemas/UserRoles'

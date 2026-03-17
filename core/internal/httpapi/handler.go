@@ -17,6 +17,7 @@ const (
 	roleAdmin   = "mdm_admin"
 	roleEditor  = "mdm_editor"
 	roleViewer  = "mdm_viewer"
+	roleAuditor = "mdm_auditor"
 	apiBasePath = "/api/v1/"
 )
 
@@ -87,6 +88,7 @@ func NewHandler(
 	mux.Handle("PATCH /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}", h.withRoles(http.HandlerFunc(h.handleUpdateEntry), roleEditor, roleAdmin))
 	mux.Handle("DELETE /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}", h.withRoles(http.HandlerFunc(h.handleDeleteEntry), roleEditor, roleAdmin))
 	mux.Handle("POST /api/v1/dictionaries/{dictionary_id}/entries/search", h.withRoles(http.HandlerFunc(h.handleSearchEntries), roleViewer, roleEditor, roleAdmin))
+	mux.Handle("GET /api/v1/audit/events", h.withRoles(http.HandlerFunc(h.handleListAuditEvents), roleAuditor, roleAdmin))
 
 	return h.requestIDMiddleware(h.loggingMiddleware(h.authMiddleware(mux)))
 }

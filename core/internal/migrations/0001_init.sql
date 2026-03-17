@@ -3,44 +3,6 @@
 -- Расширения
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Пользователи (акторы API)
-CREATE TABLE IF NOT EXISTS users (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  external_id TEXT NOT NULL UNIQUE,
-  email TEXT,
-  is_active BOOLEAN NOT NULL DEFAULT true,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Роли доступа (RBAC)
-CREATE TABLE IF NOT EXISTS roles (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  code TEXT NOT NULL UNIQUE,
-  name TEXT NOT NULL,
-  description TEXT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- Привязка ролей к пользователям
-CREATE TABLE IF NOT EXISTS user_roles (
-  user_id UUID NOT NULL,
-  role_id UUID NOT NULL,
-  granted_by UUID,
-  granted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY (user_id, role_id),
-  CONSTRAINT user_roles_user_fk
-    FOREIGN KEY (user_id) REFERENCES users (id),
-  CONSTRAINT user_roles_role_fk
-    FOREIGN KEY (role_id) REFERENCES roles (id),
-  CONSTRAINT user_roles_granted_by_fk
-    FOREIGN KEY (granted_by) REFERENCES users (id)
-);
-
-CREATE INDEX IF NOT EXISTS user_roles_role_idx
-  ON user_roles (role_id);
-
 -- Справочники
 CREATE TABLE IF NOT EXISTS dictionaries (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -161,10 +123,10 @@ CREATE INDEX IF NOT EXISTS entry_values_ref_idx
 
 -- Аудит изменений
 CREATE TABLE IF NOT EXISTS audit_events (
-  id BIGSERIAL PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   event_id UUID NOT NULL DEFAULT uuid_generate_v4(),
   request_id UUID,
-  actor_user_id UUID,
+  actor_external_id TEXT,
   actor_type TEXT NOT NULL DEFAULT 'user',
   action TEXT NOT NULL,
   entity_type TEXT NOT NULL,
@@ -176,10 +138,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
   metadata JSONB,
   CONSTRAINT audit_events_actor_type_chk
     CHECK (actor_type IN ('user', 'service')),
-  CONSTRAINT audit_events_actor_user_fk
-    FOREIGN KEY (actor_user_id) REFERENCES users (id),
   CONSTRAINT audit_events_dictionary_fk
-    FOREIGN KEY (dictionary_id) REFERENCES dictionaries (id)
+    FOREIGN KEY (dictionary_id) REFERENCES dictionaries (id) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS audit_events_occurred_idx
@@ -189,11 +149,11 @@ CREATE INDEX IF NOT EXISTS audit_events_entity_idx
   ON audit_events (entity_type, entity_id, occurred_at DESC);
 
 CREATE INDEX IF NOT EXISTS audit_events_actor_idx
-  ON audit_events (actor_user_id, occurred_at DESC);
+  ON audit_events (actor_external_id, occurred_at DESC);
 
 -- Outbox для доставки событий в Kafka
 CREATE TABLE IF NOT EXISTS outbox_events (
-  id BIGSERIAL PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   event_id UUID NOT NULL DEFAULT uuid_generate_v4(),
   aggregate_type TEXT NOT NULL,
   aggregate_id UUID NOT NULL,
@@ -206,15 +166,6 @@ CREATE TABLE IF NOT EXISTS outbox_events (
 CREATE INDEX IF NOT EXISTS outbox_unpublished_idx
   ON outbox_events (occurred_at)
   WHERE published_at IS NULL;
-
--- Базовые роли MVP
-INSERT INTO roles (code, name, description)
-VALUES
-  ('mdm_admin', 'MDM Admin', 'Полный административный доступ'),
-  ('mdm_editor', 'MDM Editor', 'Изменение справочников, атрибутов, схемы и объектов'),
-  ('mdm_viewer', 'MDM Viewer', 'Только чтение данных'),
-  ('mdm_auditor', 'MDM Auditor', 'Чтение журнала аудита')
-ON CONFLICT (code) DO NOTHING;
 
 -- Примечание по партиционированию:
 -- Для 100 млн+ объектов рассмотрите партиционирование entries по хэшу dictionary_id.

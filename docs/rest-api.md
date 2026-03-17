@@ -1,6 +1,7 @@
 # Черновик REST API
 
 Базовый путь: `/api/v1`
+Служебные endpoint-ы (вне базового пути): `GET /healthz`, `GET /readyz`.
 
 ## Общие правила
 - Формат времени: ISO 8601 (UTC).
@@ -9,6 +10,7 @@
 - MDM backend работает за доверенным gateway, интегрированным с Keycloak.
 - Аутентификация выполняется на gateway; в MDM передаются пользовательские заголовки.
 - Авторизация: доступ проверяется по ролям (RBAC) на каждую операцию.
+- Локальные сущности пользователей/ролей в БД MDM не ведутся: используются только заголовки от gateway.
 
 ### Заголовки аутентификации от gateway
 - `X-User-Id` — id пользователя, например `X-User-Id: 100`.
@@ -19,7 +21,7 @@
 - Если заголовок отсутствует или не является UUID, backend генерирует новый UUID и возвращает его в ответе.
 
 ### Роли (MVP)
-- `mdm_admin` — полный административный доступ, включая управление ролями.
+- `mdm_admin` — полный административный доступ.
 - `mdm_editor` — изменение справочников, атрибутов, схемы и объектов.
 - `mdm_viewer` — чтение справочников, атрибутов, схемы и объектов.
 - `mdm_auditor` — чтение аудита.
@@ -63,6 +65,7 @@
 ### Пагинация
 Для списков используется `limit` и `offset`.
 Поля ответа: `items`, `total`, `limit`, `offset`.
+Ограничения: `limit` в диапазоне `1..500`, `offset >= 0`.
 
 Пример:
 ```
@@ -182,6 +185,23 @@ GET /dictionaries?limit=50&offset=0
 }
 ```
 
+Примечания:
+- `PATCH /dictionaries/{dictionary_id}/entries/{entry_id}` объединяет `data` с текущим состоянием объекта.
+- Если в `PATCH` передать значение атрибута как `null`, атрибут удаляется из объекта.
+- Ошибка `422 validation_failed` для валидации объекта содержит `details.issues` (массив проблем с полями `field`, `code`, `message`).
+
+Типовые `code` в `details.issues` для валидации объектов:
+- `required`
+- `unknown_attribute`
+- `type_mismatch`
+- `invalid_multivalue_type`, `invalid_single_value_type`
+- `min`, `max`, `min_length`, `max_length`, `pattern_mismatch`
+- `min_items`, `max_items`, `duplicate_value`
+- `invalid_date`, `min_date`, `max_date`
+- `enum_not_allowed`
+- `invalid_reference_uuid`, `reference_not_found`
+- `not_unique`
+
 ## Поиск и фильтрация
 Для динамических фильтров по атрибутам используется отдельный endpoint:
 
@@ -217,7 +237,7 @@ GET /dictionaries?limit=50&offset=0
 
 Фильтры:
 - `entity_type`, `entity_id`
-- `actor_user_id`
+- `actor_external_id`
 - `occurred_from`, `occurred_to`
 - пагинация `limit`, `offset`
 
@@ -230,7 +250,7 @@ GET /dictionaries?limit=50&offset=0
       {
         "event_id": "uuid",
         "request_id": "uuid",
-        "actor_user_id": "uuid",
+        "actor_external_id": "100",
         "action": "entry.updated",
         "entity_type": "entry",
         "entity_id": "uuid",
@@ -247,22 +267,8 @@ GET /dictionaries?limit=50&offset=0
 }
 ```
 
-## Управление ролями (админ)
-- `GET /users/{user_id}/roles`
-- `PUT /users/{user_id}/roles`
-
-Доступ:
-- `mdm_admin`
-
-Пример обновления ролей:
-```json
-{
-  "role_codes": ["mdm_editor", "mdm_auditor"]
-}
-```
-
-## События (внутренние)
-Предложение по топикам Kafka:
+## События (план следующего этапа)
+Планируемые топики Kafka:
 - `mdm.dictionary.events`
 - `mdm.attribute.events`
 - `mdm.entry.events`

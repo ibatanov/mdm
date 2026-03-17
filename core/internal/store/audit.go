@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 type AuditRepository struct {
@@ -28,9 +29,9 @@ func NewAuditRepository(db *sql.DB) *AuditRepository {
 }
 
 func (r *AuditRepository) Write(ctx context.Context, record AuditRecord) error {
-	actorID, err := r.ensureUser(ctx, record.ActorExternalID)
-	if err != nil {
-		return fmt.Errorf("ensure user for audit: %w", err)
+	var requestID *string
+	if strings.TrimSpace(record.RequestID) != "" {
+		requestID = &record.RequestID
 	}
 
 	beforeState, err := marshalJSON(record.BeforeState)
@@ -50,7 +51,7 @@ func (r *AuditRepository) Write(ctx context.Context, record AuditRecord) error {
 		INSERT INTO audit_events (
 			event_id,
 			request_id,
-			actor_user_id,
+			actor_external_id,
 			action,
 			entity_type,
 			entity_id,
@@ -62,7 +63,7 @@ func (r *AuditRepository) Write(ctx context.Context, record AuditRecord) error {
 		VALUES (
 			uuid_generate_v4(),
 			$1::uuid,
-			$2::uuid,
+			$2,
 			$3,
 			$4,
 			$5::uuid,
@@ -75,8 +76,8 @@ func (r *AuditRepository) Write(ctx context.Context, record AuditRecord) error {
 	_, err = r.db.ExecContext(
 		ctx,
 		query,
-		record.RequestID,
-		actorID,
+		requestID,
+		record.ActorExternalID,
 		record.Action,
 		record.EntityType,
 		record.EntityID,
@@ -89,21 +90,6 @@ func (r *AuditRepository) Write(ctx context.Context, record AuditRecord) error {
 		return fmt.Errorf("insert audit event: %w", err)
 	}
 	return nil
-}
-
-func (r *AuditRepository) ensureUser(ctx context.Context, externalID string) (string, error) {
-	const query = `
-		INSERT INTO users (external_id)
-		VALUES ($1)
-		ON CONFLICT (external_id)
-		DO UPDATE SET updated_at = now()
-		RETURNING id::text
-	`
-	var userID string
-	if err := r.db.QueryRowContext(ctx, query, externalID).Scan(&userID); err != nil {
-		return "", err
-	}
-	return userID, nil
 }
 
 func marshalJSON(value any) ([]byte, error) {

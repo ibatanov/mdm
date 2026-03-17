@@ -6,6 +6,7 @@
 - HTTP сервер на `:8080` (или `HTTP_PORT`).
 - Проверки: `GET /healthz` (liveness), `GET /readyz` (readiness на основе конфигурации Postgres/Kafka).
 - Автомиграции БД при старте сервиса.
+- На текущем этапе используется единая SQL-миграция: `core/internal/migrations/0001_init.sql`.
 - Базовый CRUD `dictionaries`:
 - `POST /api/v1/dictionaries`
 - `GET /api/v1/dictionaries`
@@ -29,6 +30,8 @@
 - `DELETE /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}`
 - Поиск по объектам:
 - `POST /api/v1/dictionaries/{dictionary_id}/entries/search`
+- Аудит:
+- `GET /api/v1/audit/events`
 - Контракт аутентификации через gateway заголовки:
 - `X-User-Id: 100`
 - `X-User-Role: mdm_admin,mdm_editor`
@@ -60,6 +63,35 @@ curl -X POST http://localhost:8080/api/v1/dictionaries \
   -H 'X-User-Id: 100' \
   -H 'X-User-Role: mdm_admin,mdm_editor' \
   -d '{"code":"products","name":"Товары","description":"Единый каталог"}'
+```
+
+## Тесты
+- Unit тесты (без БД):
+```bash
+make test
+```
+- Integration тесты (реальный Postgres в Docker):
+```bash
+make test-integration
+```
+
+`make test-integration` делает полный цикл:
+- поднимает `docker-compose.test.yml`;
+- запускает `go test ./...` в `core` с установленным `TEST_DATABASE_DSN`;
+- всегда останавливает контейнеры и удаляет тестовые volumes (`down -v`).
+
+Тестовые данные хранятся внутри проекта: `infra/volumes/postgres-test`.
+
+### Защита от запуска на production БД
+Integration тесты читают только `TEST_DATABASE_DSN`.
+В коде есть fail-fast проверка:
+- DSN должен быть в формате `postgres://` или `postgresql://`;
+- хост только `localhost`, `127.0.0.1` или `postgres-test`;
+- имя БД обязательно заканчивается на `_test`.
+
+Можно переопределить DSN при запуске:
+```bash
+TEST_DATABASE_DSN='postgres://mdm_test:mdm_test@localhost:55432/mdm_test?sslmode=disable' make test-integration
 ```
 
 ## Переменные окружения
