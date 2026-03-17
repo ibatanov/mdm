@@ -44,9 +44,10 @@ func main() {
 	dictionaries := store.NewDictionaryRepository(db)
 	attributes := store.NewAttributeRepository(db)
 	schemas := store.NewDictionarySchemaRepository(db)
+	entries := store.NewEntryRepository(db)
 	audit := store.NewAuditRepository(db)
 
-	handler := httpapi.NewHandler(logger, db, kafkaChecker, dictionaries, attributes, schemas, audit)
+	handler := httpapi.NewHandler(logger, db, kafkaChecker, dictionaries, attributes, schemas, entries, audit)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

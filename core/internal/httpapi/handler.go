@@ -40,6 +40,7 @@ type Handler struct {
 	dictionaries *store.DictionaryRepository
 	attributes   *store.AttributeRepository
 	schemas      *store.DictionarySchemaRepository
+	entries      *store.EntryRepository
 	audit        *store.AuditRepository
 }
 
@@ -50,6 +51,7 @@ func NewHandler(
 	dictionaries *store.DictionaryRepository,
 	attributes *store.AttributeRepository,
 	schemas *store.DictionarySchemaRepository,
+	entries *store.EntryRepository,
 	audit *store.AuditRepository,
 ) http.Handler {
 	h := &Handler{
@@ -59,6 +61,7 @@ func NewHandler(
 		dictionaries: dictionaries,
 		attributes:   attributes,
 		schemas:      schemas,
+		entries:      entries,
 		audit:        audit,
 	}
 
@@ -78,6 +81,12 @@ func NewHandler(
 	mux.Handle("DELETE /api/v1/attributes/{attribute_id}", h.withRoles(http.HandlerFunc(h.handleDeleteAttribute), roleEditor, roleAdmin))
 	mux.Handle("GET /api/v1/dictionaries/{dictionary_id}/schema", h.withRoles(http.HandlerFunc(h.handleGetDictionarySchema), roleViewer, roleEditor, roleAdmin))
 	mux.Handle("PUT /api/v1/dictionaries/{dictionary_id}/schema", h.withRoles(http.HandlerFunc(h.handlePutDictionarySchema), roleEditor, roleAdmin))
+	mux.Handle("POST /api/v1/dictionaries/{dictionary_id}/entries", h.withRoles(http.HandlerFunc(h.handleCreateEntry), roleEditor, roleAdmin))
+	mux.Handle("GET /api/v1/dictionaries/{dictionary_id}/entries", h.withRoles(http.HandlerFunc(h.handleListEntries), roleViewer, roleEditor, roleAdmin))
+	mux.Handle("GET /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}", h.withRoles(http.HandlerFunc(h.handleGetEntry), roleViewer, roleEditor, roleAdmin))
+	mux.Handle("PATCH /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}", h.withRoles(http.HandlerFunc(h.handleUpdateEntry), roleEditor, roleAdmin))
+	mux.Handle("DELETE /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}", h.withRoles(http.HandlerFunc(h.handleDeleteEntry), roleEditor, roleAdmin))
+	mux.Handle("POST /api/v1/dictionaries/{dictionary_id}/entries/search", h.withRoles(http.HandlerFunc(h.handleSearchEntries), roleViewer, roleEditor, roleAdmin))
 
 	return h.requestIDMiddleware(h.loggingMiddleware(h.authMiddleware(mux)))
 }

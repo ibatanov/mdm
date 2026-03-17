@@ -15,8 +15,7 @@ tags:
   - name: Access
 
 security:
-  - GatewayRequestIdHeader: []
-    GatewayUserIdHeader: []
+  - GatewayUserIdHeader: []
     GatewayUserRoleHeader: []
 
 paths:
@@ -561,11 +560,6 @@ paths:
 
 components:
   securitySchemes:
-    GatewayRequestIdHeader:
-      type: apiKey
-      in: header
-      name: X-Request-Id
-      description: 'Обязательный UUID трассировки запроса от gateway для `/api/v1/*`.'
     GatewayUserIdHeader:
       type: apiKey
       in: header

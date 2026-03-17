@@ -26,28 +26,14 @@ func (h *Handler) withRoles(next http.Handler, allowed ...string) http.Handler {
 
 func (h *Handler) requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		headerRequestIDValue := strings.TrimSpace(r.Header.Get(headerRequestID))
-		responseRequestID := headerRequestIDValue
-		if !isUUID(responseRequestID) {
-			responseRequestID = newUUID()
+		requestID := strings.TrimSpace(r.Header.Get(headerRequestID))
+		if !isUUID(requestID) {
+			requestID = newUUID()
 		}
-		w.Header().Set(headerRequestID, responseRequestID)
+		w.Header().Set(headerRequestID, requestID)
 
-		ctx := context.WithValue(r.Context(), contextKeyRequestID, responseRequestID)
-		requestWithContext := r.WithContext(ctx)
-
-		if strings.HasPrefix(r.URL.Path, apiBasePath) {
-			if headerRequestIDValue == "" {
-				writeError(w, requestWithContext, http.StatusBadRequest, "invalid_request", "Missing X-Request-Id header", nil)
-				return
-			}
-			if !isUUID(headerRequestIDValue) {
-				writeError(w, requestWithContext, http.StatusBadRequest, "invalid_request", "X-Request-Id must be UUID", nil)
-				return
-			}
-		}
-
-		next.ServeHTTP(w, requestWithContext)
+		ctx := context.WithValue(r.Context(), contextKeyRequestID, requestID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

@@ -21,11 +21,19 @@
 - Управление схемой справочника:
 - `GET /api/v1/dictionaries/{dictionary_id}/schema`
 - `PUT /api/v1/dictionaries/{dictionary_id}/schema`
+- Базовый CRUD `entries`:
+- `POST /api/v1/dictionaries/{dictionary_id}/entries`
+- `GET /api/v1/dictionaries/{dictionary_id}/entries`
+- `GET /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}`
+- `PATCH /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}`
+- `DELETE /api/v1/dictionaries/{dictionary_id}/entries/{entry_id}`
+- Поиск по объектам:
+- `POST /api/v1/dictionaries/{dictionary_id}/entries/search`
 - Контракт аутентификации через gateway заголовки:
 - `X-User-Id: 100`
 - `X-User-Role: mdm_admin,mdm_editor`
 - Контракт трассировки запросов:
-- `X-Request-Id: <uuid>` (обязателен для `/api/v1/*`, иначе `400 invalid_request`)
+- `X-Request-Id: <uuid>` (опционален; при отсутствии/невалидном значении сервер сгенерирует UUID)
 
 ## Быстрый запуск
 1. Поднять инфраструктуру:
