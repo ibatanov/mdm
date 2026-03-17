@@ -1,0 +1,7 @@
+.DS_Store
+
+infra/volumes/postgres/*
+!infra/volumes/postgres/.gitkeep
+
+infra/volumes/kafka/*
+!infra/volumes/kafka/.gitkeep

@@ -1,0 +1,122 @@
+%% ER диаграмма: справочники, атрибуты, объекты, outbox
+erDiagram
+  USERS {
+    uuid id PK
+    text external_id
+    text email
+    boolean is_active
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  ROLES {
+    uuid id PK
+    text code
+    text name
+    text description
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  USER_ROLES {
+    uuid user_id FK
+    uuid role_id FK
+    uuid granted_by FK
+    timestamptz granted_at
+  }
+
+  DICTIONARIES {
+    uuid id PK
+    text code
+    text name
+    text description
+    int schema_version
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  ATTRIBUTES {
+    uuid id PK
+    text code
+    text name
+    text description
+    text data_type
+    uuid ref_dictionary_id FK
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  DICTIONARY_ATTRIBUTES {
+    uuid dictionary_id FK
+    uuid attribute_id FK
+    boolean required
+    jsonb default_value
+    jsonb validators
+    boolean is_unique
+    boolean is_multivalue
+    int position
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  ENTRIES {
+    uuid id PK
+    uuid dictionary_id FK
+    text external_key
+    jsonb data
+    int version
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  ENTRY_VALUES {
+    uuid entry_id FK
+    uuid dictionary_id FK
+    uuid attribute_id FK
+    text value_text
+    numeric value_num
+    date value_date
+    boolean value_bool
+    uuid value_ref
+    jsonb value_json
+    timestamptz created_at
+  }
+
+  OUTBOX_EVENTS {
+    bigint id PK
+    uuid event_id
+    text aggregate_type
+    uuid aggregate_id
+    text event_type
+    jsonb payload
+    timestamptz occurred_at
+    timestamptz published_at
+  }
+
+  AUDIT_EVENTS {
+    bigint id PK
+    uuid event_id
+    uuid request_id
+    uuid actor_user_id FK
+    text actor_type
+    text action
+    text entity_type
+    uuid entity_id
+    uuid dictionary_id FK
+    timestamptz occurred_at
+    jsonb before_state
+    jsonb after_state
+    jsonb metadata
+  }
+
+  USERS ||--o{ USER_ROLES : has
+  ROLES ||--o{ USER_ROLES : assigned
+  USERS ||--o{ USER_ROLES : grants
+  DICTIONARIES ||--o{ DICTIONARY_ATTRIBUTES : has
+  ATTRIBUTES ||--o{ DICTIONARY_ATTRIBUTES : uses
+  DICTIONARIES ||--o{ ENTRIES : contains
+  DICTIONARIES ||--o{ ATTRIBUTES : references
+  ENTRIES ||--o{ ENTRY_VALUES : has
+  ATTRIBUTES ||--o{ ENTRY_VALUES : values
+  USERS ||--o{ AUDIT_EVENTS : performs
+  DICTIONARIES ||--o{ AUDIT_EVENTS : scoped

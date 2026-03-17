@@ -1,0 +1,1113 @@
+openapi: 3.0.3
+info:
+  title: MDM/PIM API (MVP)
+  version: 0.2.0
+  description: Черновик спецификации REST API для MDM/PIM.
+servers:
+  - url: /api/v1
+
+tags:
+  - name: Dictionaries
+  - name: Attributes
+  - name: Schema
+  - name: Entries
+  - name: Audit
+  - name: Access
+
+security:
+  - GatewayUserIdHeader: []
+    GatewayUserRoleHeader: []
+
+paths:
+  /dictionaries:
+    get:
+      tags: [Dictionaries]
+      summary: Список справочников
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedDictionaries'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Dictionaries]
+      summary: Создать справочник
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DictionaryCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dictionaries/{dictionary_id}:
+    get:
+      tags: [Dictionaries]
+      summary: Получить справочник
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [Dictionaries]
+      summary: Обновить справочник
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DictionaryUpdate'
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DictionaryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Dictionaries]
+      summary: Удалить справочник
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+      responses:
+        '204':
+          description: No Content
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /attributes:
+    get:
+      tags: [Attributes]
+      summary: Список атрибутов
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedAttributes'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Attributes]
+      summary: Создать атрибут
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttributeCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /attributes/{attribute_id}:
+    get:
+      tags: [Attributes]
+      summary: Получить атрибут
+      parameters:
+        - $ref: '#/components/parameters/AttributeId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [Attributes]
+      summary: Обновить атрибут
+      parameters:
+        - $ref: '#/components/parameters/AttributeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttributeUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttributeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Attributes]
+      summary: Удалить атрибут
+      parameters:
+        - $ref: '#/components/parameters/AttributeId'
+      responses:
+        '204':
+          description: No Content
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dictionaries/{dictionary_id}/schema:
+    get:
+      tags: [Schema]
+      summary: Получить схему справочника
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Schema]
+      summary: Обновить схему справочника
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SchemaUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dictionaries/{dictionary_id}/entries:
+    get:
+      tags: [Entries]
+      summary: Список объектов
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedEntries'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Entries]
+      summary: Создать объект
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntryCreate'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dictionaries/{dictionary_id}/entries/{entry_id}:
+    get:
+      tags: [Entries]
+      summary: Получить объект
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+        - $ref: '#/components/parameters/EntryId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntryResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    patch:
+      tags: [Entries]
+      summary: Обновить объект
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+        - $ref: '#/components/parameters/EntryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EntryUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    delete:
+      tags: [Entries]
+      summary: Удалить объект
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+        - $ref: '#/components/parameters/EntryId'
+      responses:
+        '204':
+          description: No Content
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /dictionaries/{dictionary_id}/entries/search:
+    post:
+      tags: [Entries]
+      summary: Поиск и фильтрация по атрибутам
+      parameters:
+        - $ref: '#/components/parameters/DictionaryId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedEntries'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /audit/events:
+    get:
+      tags: [Audit]
+      summary: Получить журнал аудита
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/EntityType'
+        - $ref: '#/components/parameters/EntityId'
+        - $ref: '#/components/parameters/ActorUserId'
+        - $ref: '#/components/parameters/OccurredFrom'
+        - $ref: '#/components/parameters/OccurredTo'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedAuditEvents'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /users/{user_id}/roles:
+    get:
+      tags: [Access]
+      summary: Получить роли пользователя
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRolesResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    put:
+      tags: [Access]
+      summary: Назначить роли пользователю
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRolesUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRolesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationFailed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    GatewayUserIdHeader:
+      type: apiKey
+      in: header
+      name: X-User-Id
+      description: 'Заголовок от доверенного gateway после проверки Keycloak (пример `X-User-Id: 100`).'
+    GatewayUserRoleHeader:
+      type: apiKey
+      in: header
+      name: X-User-Role
+      description: 'Роли пользователя через запятую от доверенного gateway (пример `X-User-Role: mdm_admin,mdm_editor`).'
+
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 50
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    DictionaryId:
+      name: dictionary_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AttributeId:
+      name: attribute_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EntryId:
+      name: entry_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EntityType:
+      name: entity_type
+      in: query
+      required: false
+      schema:
+        type: string
+    EntityId:
+      name: entity_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    ActorUserId:
+      name: actor_user_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+    OccurredFrom:
+      name: occurred_from
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+    OccurredTo:
+      name: occurred_to
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+
+  responses:
+    BadRequest:
+      description: Некорректный запрос (код `invalid_request`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Отсутствуют/невалидны auth-заголовки от gateway (код `unauthorized`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Недостаточно прав (код `forbidden`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Ресурс не найден (код `not_found`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Конфликт состояния/уникальности (код `conflict`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ValidationFailed:
+      description: Ошибка бизнес-валидации (код `validation_failed`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Внутренняя ошибка сервера (код `internal_error`)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthorized
+                - forbidden
+                - invalid_request
+                - not_found
+                - conflict
+                - validation_failed
+                - internal_error
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+          required: [code, message]
+      required: [request_id, error]
+
+    Dictionary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        schema_version:
+          type: integer
+    DictionaryCreate:
+      type: object
+      required: [code, name]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+    DictionaryUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+    DictionaryResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          $ref: '#/components/schemas/Dictionary'
+    PagedDictionaries:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          $ref: '#/components/schemas/PageDictionaries'
+
+    PageDictionaries:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Dictionary'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    Attribute:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        data_type:
+          type: string
+        ref_dictionary_id:
+          type: string
+          format: uuid
+    AttributeCreate:
+      type: object
+      required: [code, name, data_type]
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        data_type:
+          type: string
+        ref_dictionary_id:
+          type: string
+          format: uuid
+    AttributeUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+    AttributeResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          $ref: '#/components/schemas/Attribute'
+    PagedAttributes:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          $ref: '#/components/schemas/PageAttributes'
+
+    PageAttributes:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Attribute'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    SchemaAttribute:
+      type: object
+      properties:
+        attribute_id:
+          type: string
+          format: uuid
+        required:
+          type: boolean
+        default_value:
+          type: object
+          additionalProperties: true
+        validators:
+          type: object
+          additionalProperties: true
+        is_unique:
+          type: boolean
+        is_multivalue:
+          type: boolean
+        position:
+          type: integer
+    SchemaUpdate:
+      type: object
+      properties:
+        attributes:
+          type: array
+          items:
+            $ref: '#/components/schemas/SchemaAttribute'
+    SchemaResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          type: object
+          properties:
+            attributes:
+              type: array
+              items:
+                $ref: '#/components/schemas/SchemaAttribute'
+
+    Entry:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        dictionary_id:
+          type: string
+          format: uuid
+        external_key:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        version:
+          type: integer
+    EntryCreate:
+      type: object
+      required: [data]
+      properties:
+        external_key:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+    EntryUpdate:
+      type: object
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+    EntryResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          $ref: '#/components/schemas/Entry'
+    PagedEntries:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          $ref: '#/components/schemas/PageEntries'
+
+    PageEntries:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entry'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    SearchRequest:
+      type: object
+      properties:
+        filters:
+          type: array
+          items:
+            $ref: '#/components/schemas/Filter'
+        sort:
+          type: array
+          items:
+            $ref: '#/components/schemas/Sort'
+        page:
+          $ref: '#/components/schemas/PageParams'
+
+    Filter:
+      type: object
+      required: [attribute, op]
+      properties:
+        attribute:
+          type: string
+        op:
+          type: string
+          description: eq, ne, lt, lte, gt, gte, in, contains, prefix, range
+        value:
+          type: object
+          additionalProperties: true
+        values:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        from:
+          type: object
+          additionalProperties: true
+        to:
+          type: object
+          additionalProperties: true
+
+    Sort:
+      type: object
+      properties:
+        attribute:
+          type: string
+        direction:
+          type: string
+          enum: [asc, desc]
+
+    PageParams:
+      type: object
+      properties:
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    AuditEvent:
+      type: object
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        request_id:
+          type: string
+          format: uuid
+        actor_user_id:
+          type: string
+          format: uuid
+        actor_type:
+          type: string
+          enum: [user, service]
+        action:
+          type: string
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+          format: uuid
+        dictionary_id:
+          type: string
+          format: uuid
+        occurred_at:
+          type: string
+          format: date-time
+        before_state:
+          type: object
+          additionalProperties: true
+        after_state:
+          type: object
+          additionalProperties: true
+        metadata:
+          type: object
+          additionalProperties: true
+
+    PagedAuditEvents:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          $ref: '#/components/schemas/PageAuditEvents'
+
+    PageAuditEvents:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+
+    Role:
+      type: object
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+
+    UserRoles:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/Role'
+
+    UserRolesUpdate:
+      type: object
+      required: [role_codes]
+      properties:
+        role_codes:
+          type: array
+          items:
+            type: string
+
+    UserRolesResponse:
+      type: object
+      properties:
+        request_id:
+          type: string
+          format: uuid
+        data:
+          $ref: '#/components/schemas/UserRoles'
