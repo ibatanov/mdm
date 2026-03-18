@@ -25,7 +25,7 @@ import {
   type SearchRequest,
   mdmApi,
 } from '../lib/api'
-import { formatError } from '../lib/errors'
+import { extractValidationIssues, formatError } from '../lib/errors'
 import { hasAnyRole } from '../lib/rbac'
 import { useDevIdentityStore } from '../stores/devIdentity'
 
@@ -46,10 +46,18 @@ interface DictionaryField {
   code: string
   name: string
   dataType: Attribute['data_type']
+  refDictionaryId?: string
   required: boolean
   isUnique: boolean
   isMultivalue: boolean
   validators: Record<string, unknown>
+}
+
+interface ReferenceOption {
+  id: string
+  label: string
+  searchIndex: string
+  dataSignature: string
 }
 
 const SEARCH_OPS: Array<{ value: SearchOp; label: string }> = [
@@ -87,11 +95,14 @@ const pageOffset = ref(0)
 const createModalOpen = ref(false)
 const createExternalKey = ref('')
 const createValues = ref<Record<string, string>>({})
+const createReferenceSearch = ref<Record<string, string>>({})
 const createIssues = ref<string[]>([])
 
 const editEntryId = ref('')
 const editValues = ref<Record<string, string>>({})
-const editOriginal = ref<Record<string, unknown>>({})
+const editInitialValues = ref<Record<string, string>>({})
+const editReferenceSearch = ref<Record<string, string>>({})
+const editReferenceResolvedLabels = ref<Record<string, string>>({})
 const editIssues = ref<string[]>([])
 
 const searchRows = ref<SearchRowDraft[]>([])
@@ -102,6 +113,12 @@ const filtersApplied = ref(false)
 
 const columnVisibility = ref<Record<string, boolean>>({})
 const columnModalOpen = ref(false)
+const referenceOptionsByField = ref<Record<string, ReferenceOption[]>>({})
+const referenceOptionCacheByField = ref<Record<string, Record<string, ReferenceOption>>>({})
+const referenceLoadingByField = ref<Record<string, boolean>>({})
+const referenceErrorsByField = ref<Record<string, string>>({})
+const referenceSearchableFieldsByDictionary = ref<Record<string, string[]>>({})
+const referenceSearchSeqByField = ref<Record<string, number>>({})
 
 const canWrite = computed(() => !identity.isDev || hasAnyRole(identity.currentRoles, ['mdm_admin', 'mdm_editor']))
 const pageCount = computed(() => Math.max(1, Math.ceil(rowsTotal.value / pageLimit.value)))
@@ -110,6 +127,14 @@ const currentPage = computed(() => Math.min(pageCount.value, Math.floor(pageOffs
 const selectedDictionary = computed(() =>
   dictionaries.value.find((dictionary) => dictionary.id === selectedDictionaryId.value) ?? null,
 )
+
+const dictionariesById = computed(() => {
+  const map = new Map<string, Dictionary>()
+  for (const dictionary of dictionaries.value) {
+    map.set(dictionary.id, dictionary)
+  }
+  return map
+})
 
 const attributesById = computed(() => {
   const map = new Map<string, Attribute>()
@@ -133,6 +158,7 @@ const fields = computed<DictionaryField[]>(() => {
       code: attribute.code,
       name: attribute.name,
       dataType: attribute.data_type,
+      refDictionaryId: attribute.ref_dictionary_id,
       required: item.required,
       isUnique: item.is_unique,
       isMultivalue: item.is_multivalue,
@@ -162,6 +188,7 @@ watch(
   fields,
   () => {
     initializeCreateValues()
+    initializeReferenceSearchMaps()
     syncSearchRows()
     initializeColumnVisibility()
   },
@@ -194,10 +221,6 @@ function asRecord(value: unknown): Record<string, unknown> {
     return {}
   }
   return value as Record<string, unknown>
-}
-
-function hasOwn(data: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(data, key)
 }
 
 function clearFeedback(): void {
@@ -365,6 +388,14 @@ function toInputString(value: unknown, field: DictionaryField): string {
   if (value === undefined || value === null) {
     return ''
   }
+  if (field.dataType === 'reference') {
+    if (field.isMultivalue) {
+      const ids = extractReferenceIds(value, field)
+      return ids.join('\n')
+    }
+    const id = inferReferenceId(value, field)
+    return id ?? ''
+  }
   if (field.isMultivalue) {
     if (!Array.isArray(value)) {
       return ''
@@ -380,12 +411,161 @@ function toInputString(value: unknown, field: DictionaryField): string {
   return String(value)
 }
 
+function extractReferenceId(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed === '' ? undefined : trimmed
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+
+  const candidate = (value as Record<string, unknown>).id
+  if (typeof candidate !== 'string') {
+    return undefined
+  }
+
+  const trimmed = candidate.trim()
+  return trimmed === '' ? undefined : trimmed
+}
+
+function stableValueSignature(value: unknown): string {
+  if (value === null) {
+    return 'null'
+  }
+
+  const valueType = typeof value
+  if (valueType === 'string') {
+    return `s:${value as string}`
+  }
+  if (valueType === 'number' || valueType === 'boolean') {
+    return `${valueType[0]}:${String(value)}`
+  }
+  if (Array.isArray(value)) {
+    const items = value.map((item) => stableValueSignature(item))
+    return `[${items.join('|')}]`
+  }
+  if (!value || valueType !== 'object') {
+    return `u:${String(value)}`
+  }
+
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record).sort()
+  const parts: string[] = []
+  for (const key of keys) {
+    parts.push(`${key}=${stableValueSignature(record[key])}`)
+  }
+  return `{${parts.join('|')}}`
+}
+
+function inferReferenceId(value: unknown, field: DictionaryField): string | undefined {
+  const direct = extractReferenceId(value)
+  if (direct) {
+    return direct
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+
+  const targetSignature = stableValueSignature(value)
+  const knownOptions = referenceOptionsFor(field)
+  const cached = Object.values(referenceOptionCacheByField.value[field.code] ?? {})
+  const allOptions: ReferenceOption[] = []
+  const seen = new Set<string>()
+  for (const option of [...knownOptions, ...cached]) {
+    if (seen.has(option.id)) {
+      continue
+    }
+    seen.add(option.id)
+    allOptions.push(option)
+  }
+  const matches = allOptions.filter((option) => option.dataSignature === targetSignature)
+  if (matches.length === 1) {
+    return matches[0].id
+  }
+  if (matches.length > 1) {
+    return matches[0].id
+  }
+
+  return undefined
+}
+
+function extractReferenceIds(value: unknown, field: DictionaryField): string[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const ids: string[] = []
+  for (const item of value) {
+    const id = inferReferenceId(item, field)
+    if (id) {
+      ids.push(id)
+    }
+  }
+  return ids
+}
+
+function referenceDisplayLabel(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '—'
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed === '' ? '—' : trimmed
+  }
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return String(value)
+  }
+
+  const record = value as Record<string, unknown>
+  const externalKey = typeof record.external_key === 'string' ? record.external_key.trim() : ''
+  const id = typeof record.id === 'string' ? record.id.trim() : ''
+  const code = typeof record.code === 'string' ? record.code.trim() : ''
+  const name = typeof record.name === 'string' ? record.name.trim() : ''
+
+  if (externalKey !== '' && id !== '') {
+    return `${externalKey} (${id})`
+  }
+  if (externalKey !== '') {
+    return externalKey
+  }
+  if (name !== '') {
+    return name
+  }
+  if (code !== '') {
+    return code
+  }
+  if (id !== '') {
+    return id
+  }
+
+  try {
+    const serialized = JSON.stringify(record)
+    if (!serialized) {
+      return '[object]'
+    }
+    return serialized.length > 120 ? `${serialized.slice(0, 117)}...` : serialized
+  } catch {
+    return '[object]'
+  }
+}
+
 function formatEntryValue(value: unknown, field: DictionaryField): string {
   if (value === undefined || value === null) {
     return '—'
   }
   if (field.isMultivalue && Array.isArray(value)) {
+    if (field.dataType === 'reference') {
+      const tokens = value.map((item) => referenceDisplayLabel(item)).filter((item) => item.trim() !== '')
+      return tokens.length > 0 ? tokens.join(', ') : '—'
+    }
     return value.map((item) => String(item)).join(', ')
+  }
+  if (field.dataType === 'reference') {
+    return referenceDisplayLabel(value)
   }
   if (typeof value === 'boolean') {
     return value ? 'true' : 'false'
@@ -452,6 +632,62 @@ function parseFieldValue(raw: string, field: DictionaryField): unknown | undefin
   return tokens.map((entry) => parseSingleValue(entry, field))
 }
 
+function selectedReferenceIds(raw: string): string[] {
+  return raw
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+}
+
+function createSelectedReferenceIds(fieldCode: string): string[] {
+  return selectedReferenceIds(createValues.value[fieldCode] ?? '')
+}
+
+function editSelectedReferenceIds(fieldCode: string): string[] {
+  return selectedReferenceIds(editValues.value[fieldCode] ?? '')
+}
+
+function setReferenceSelection(target: 'create' | 'edit', fieldCode: string, values: string[]): void {
+  const normalized = Array.from(new Set(values.map((item) => item.trim()).filter((item) => item !== '')))
+  const serialized = normalized.join('\n')
+  if (target === 'create') {
+    createValues.value[fieldCode] = serialized
+    return
+  }
+  editValues.value[fieldCode] = serialized
+}
+
+function toggleReferenceSelection(
+  target: 'create' | 'edit',
+  fieldCode: string,
+  optionId: string,
+  checked: boolean,
+): void {
+  const current = target === 'create' ? createSelectedReferenceIds(fieldCode) : editSelectedReferenceIds(fieldCode)
+  if (checked) {
+    setReferenceSelection(target, fieldCode, [...current, optionId])
+    return
+  }
+  setReferenceSelection(
+    target,
+    fieldCode,
+    current.filter((item) => item !== optionId),
+  )
+}
+
+function isReferenceSelected(target: 'create' | 'edit', fieldCode: string, optionId: string): boolean {
+  const current = target === 'create' ? createSelectedReferenceIds(fieldCode) : editSelectedReferenceIds(fieldCode)
+  return current.includes(optionId)
+}
+
+function onCreateReferenceSearchInput(fieldCode: string): void {
+  void searchReferenceOptionsForField(fieldCode, createReferenceSearch.value[fieldCode] ?? '')
+}
+
+function onEditReferenceSearchInput(fieldCode: string): void {
+  void searchReferenceOptionsForField(fieldCode, editReferenceSearch.value[fieldCode] ?? '')
+}
+
 function initializeCreateValues(): void {
   const next: Record<string, string> = {}
   for (const field of fields.value) {
@@ -461,12 +697,116 @@ function initializeCreateValues(): void {
   createIssues.value = []
 }
 
+function initializeReferenceSearchMaps(): void {
+  const createSearch: Record<string, string> = {}
+  const editSearch: Record<string, string> = {}
+  for (const field of fields.value) {
+    createSearch[field.code] = createReferenceSearch.value[field.code] ?? ''
+    editSearch[field.code] = editReferenceSearch.value[field.code] ?? ''
+  }
+  createReferenceSearch.value = createSearch
+  editReferenceSearch.value = editSearch
+}
+
+function makeReferenceOption(entry: Entry): ReferenceOption {
+  const externalKey = entry.external_key?.trim() ?? ''
+  const summary = referenceDisplayLabel(entry.data)
+  const labelPrefix = externalKey !== '' ? externalKey : entry.id.slice(0, 8)
+  const label = summary === '—' ? `${labelPrefix} (${entry.id})` : `${labelPrefix} (${entry.id}) — ${summary}`
+  return {
+    id: entry.id,
+    label,
+    searchIndex: `${entry.id} ${externalKey} ${summary}`.toLowerCase(),
+    dataSignature: stableValueSignature(entry.data),
+  }
+}
+
+function referenceOptionsFor(field: DictionaryField): ReferenceOption[] {
+  return referenceOptionsByField.value[field.code] ?? []
+}
+
+function cacheReferenceOptions(fieldCode: string, options: ReferenceOption[]): void {
+  if (!referenceOptionCacheByField.value[fieldCode]) {
+    referenceOptionCacheByField.value[fieldCode] = {}
+  }
+
+  for (const option of options) {
+    referenceOptionCacheByField.value[fieldCode][option.id] = option
+  }
+}
+
+function cachedOrFallbackReferenceOption(fieldCode: string, optionId: string): ReferenceOption {
+  const cache = referenceOptionCacheByField.value[fieldCode]
+  if (cache?.[optionId]) {
+    return cache[optionId]
+  }
+
+  return {
+    id: optionId,
+    label: optionId,
+    searchIndex: optionId.toLowerCase(),
+    dataSignature: '',
+  }
+}
+
+function visibleReferenceOptionsFor(target: 'create' | 'edit', field: DictionaryField): ReferenceOption[] {
+  const fieldCode = field.code
+  const currentOptions = referenceOptionsFor(field)
+
+  const selectedIds = target === 'create' ? createSelectedReferenceIds(fieldCode) : editSelectedReferenceIds(fieldCode)
+  const selectedOptions = selectedIds.map((optionId) => {
+    return currentOptions.find((option) => option.id === optionId) ?? cachedOrFallbackReferenceOption(fieldCode, optionId)
+  })
+
+  const merged = [...selectedOptions, ...currentOptions]
+  const deduplicated: ReferenceOption[] = []
+  const seen = new Set<string>()
+  for (const option of merged) {
+    if (seen.has(option.id)) {
+      continue
+    }
+    seen.add(option.id)
+    deduplicated.push(option)
+  }
+
+  return deduplicated
+}
+
+function referenceDictionaryLabel(field: DictionaryField): string {
+  const dictionaryId = field.refDictionaryId
+  if (!dictionaryId) {
+    return 'не указан'
+  }
+  const dictionary = dictionariesById.value.get(dictionaryId)
+  if (!dictionary) {
+    return dictionaryId
+  }
+  return `${dictionary.code} — ${dictionary.name}`
+}
+
+function referenceLoading(field: DictionaryField): boolean {
+  return Boolean(referenceLoadingByField.value[field.code])
+}
+
+function referenceError(field: DictionaryField): string {
+  return referenceErrorsByField.value[field.code] ?? ''
+}
+
+function currentResolvedReference(fieldCode: string): string {
+  return editReferenceResolvedLabels.value[fieldCode] ?? ''
+}
+
 function openCreateModal(): void {
   if (!selectedDictionaryId.value || !canWrite.value) {
     return
   }
   createExternalKey.value = ''
   initializeCreateValues()
+  const nextSearch: Record<string, string> = {}
+  for (const field of fields.value) {
+    nextSearch[field.code] = ''
+  }
+  createReferenceSearch.value = nextSearch
   createIssues.value = []
   createModalOpen.value = true
 }
@@ -496,77 +836,64 @@ function buildCreateData(): { data: Record<string, unknown>; issues: string[] } 
 
 function startEditEntry(entry: Entry): void {
   editEntryId.value = entry.id
-  editOriginal.value = JSON.parse(JSON.stringify(entry.data)) as Record<string, unknown>
 
   const nextValues: Record<string, string> = {}
+  const nextSearch: Record<string, string> = {}
+  const nextResolvedLabels: Record<string, string> = {}
   for (const field of fields.value) {
     nextValues[field.code] = toInputString(entry.data[field.code], field)
+    nextSearch[field.code] = ''
+    if (field.dataType === 'reference' && !field.isMultivalue) {
+      const hasKnownId = nextValues[field.code].trim() !== ''
+      if (!hasKnownId && entry.data[field.code] !== undefined && entry.data[field.code] !== null) {
+        nextResolvedLabels[field.code] = referenceDisplayLabel(entry.data[field.code])
+      }
+    }
   }
   editValues.value = nextValues
+  editInitialValues.value = { ...nextValues }
+  editReferenceSearch.value = nextSearch
+  editReferenceResolvedLabels.value = nextResolvedLabels
   editIssues.value = []
 }
 
 function clearEntryEditor(): void {
   editEntryId.value = ''
   editValues.value = {}
-  editOriginal.value = {}
+  editInitialValues.value = {}
+  editReferenceSearch.value = {}
+  editReferenceResolvedLabels.value = {}
   editIssues.value = []
 }
 
-function deepEqual(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
-}
-
-function buildEditFinalData(): { final: Record<string, unknown>; issues: string[] } {
-  const finalData: Record<string, unknown> = JSON.parse(JSON.stringify(editOriginal.value)) as Record<string, unknown>
+function buildEditPatch(): { patch: Record<string, unknown>; issues: string[] } {
+  const patch: Record<string, unknown> = {}
   const issues: string[] = []
 
   for (const field of fields.value) {
     const raw = editValues.value[field.code] ?? ''
+    const initialRaw = editInitialValues.value[field.code] ?? ''
+    if (raw === initialRaw) {
+      continue
+    }
+
     try {
       const parsed = parseFieldValue(raw, field)
       if (parsed === undefined) {
-        delete finalData[field.code]
+        if (field.required) {
+          issues.push(`Поле "${field.name}" обязательно`)
+          continue
+        }
+        patch[field.code] = null
         continue
       }
-      finalData[field.code] = parsed
+      patch[field.code] = parsed
     } catch (err) {
       issues.push(formatError(err))
     }
   }
 
-  for (const field of fields.value) {
-    if (field.required && !hasOwn(finalData, field.code)) {
-      issues.push(`Поле "${field.name}" обязательно`)
-    }
-  }
-
-  return { final: finalData, issues }
-}
-
-function buildPatchDelta(original: Record<string, unknown>, finalData: Record<string, unknown>): Record<string, unknown> {
-  const patch: Record<string, unknown> = {}
-  const keys = new Set<string>([...Object.keys(original), ...Object.keys(finalData)])
-
-  for (const key of keys) {
-    const originalHas = hasOwn(original, key)
-    const finalHas = hasOwn(finalData, key)
-
-    if (originalHas && !finalHas) {
-      patch[key] = null
-      continue
-    }
-
-    if (finalHas) {
-      const originalValue = originalHas ? original[key] : undefined
-      const finalValue = finalData[key]
-      if (!originalHas || !deepEqual(originalValue, finalValue)) {
-        patch[key] = finalValue
-      }
-    }
-  }
-
-  return patch
+  return { patch, issues }
 }
 
 function enumOptions(field: DictionaryField): string[] {
@@ -756,6 +1083,122 @@ function buildSearchBody(): { body: SearchRequest; issues: string[] } {
   return { body, issues }
 }
 
+async function ensureReferenceSearchableFields(referenceDictionaryId: string): Promise<string[]> {
+  const cached = referenceSearchableFieldsByDictionary.value[referenceDictionaryId]
+  if (cached) {
+    return cached
+  }
+
+  const schemaResult = await mdmApi.getDictionarySchema(referenceDictionaryId)
+  const searchable = schemaResult.attributes
+    .map((row) => attributesById.value.get(row.attribute_id))
+    .filter((attribute): attribute is Attribute => Boolean(attribute))
+    .filter((attribute) => attribute.data_type === 'string' || attribute.data_type === 'enum')
+    .map((attribute) => attribute.code)
+
+  referenceSearchableFieldsByDictionary.value[referenceDictionaryId] = searchable
+  return searchable
+}
+
+function pickReferenceSearchAttribute(searchableFields: string[]): string | null {
+  if (searchableFields.length === 0) {
+    return null
+  }
+
+  const preferred = ['name', 'title', 'code', 'article']
+  for (const key of preferred) {
+    if (searchableFields.includes(key)) {
+      return key
+    }
+  }
+  return searchableFields[0]
+}
+
+async function searchReferenceOptionsForField(fieldCode: string, query: string): Promise<void> {
+  const field = fieldsByCode.value.get(fieldCode)
+  if (!field || field.dataType !== 'reference' || !field.refDictionaryId) {
+    referenceOptionsByField.value[fieldCode] = []
+    return
+  }
+
+  const normalizedQuery = query.trim()
+  const seq = (referenceSearchSeqByField.value[fieldCode] ?? 0) + 1
+  referenceSearchSeqByField.value[fieldCode] = seq
+  referenceLoadingByField.value[fieldCode] = true
+  referenceErrorsByField.value[fieldCode] = ''
+
+  try {
+    let items: Entry[] = []
+    if (normalizedQuery === '') {
+      const result = await mdmApi.listEntries(field.refDictionaryId, 30, 0)
+      items = result.items
+    } else {
+      const searchableFields = await ensureReferenceSearchableFields(field.refDictionaryId)
+      if (searchableFields.length === 0) {
+        const result = await mdmApi.listEntries(field.refDictionaryId, 30, 0)
+        items = result.items.filter((entry) => {
+          const option = makeReferenceOption(entry)
+          return option.searchIndex.includes(normalizedQuery.toLowerCase())
+        })
+      } else {
+        const searchAttribute = pickReferenceSearchAttribute(searchableFields)
+        if (searchAttribute) {
+          const result = await mdmApi.searchEntries(field.refDictionaryId, {
+            filters: [{ attribute: searchAttribute, op: 'contains', value: normalizedQuery }],
+            page: { limit: 40, offset: 0 },
+          })
+          items = result.items
+        }
+      }
+    }
+
+    if (referenceSearchSeqByField.value[fieldCode] !== seq) {
+      return
+    }
+    const options = items.map(makeReferenceOption)
+    cacheReferenceOptions(fieldCode, options)
+    referenceOptionsByField.value[fieldCode] = options
+    referenceErrorsByField.value[fieldCode] = ''
+  } catch (err) {
+    if (referenceSearchSeqByField.value[fieldCode] !== seq) {
+      return
+    }
+    referenceOptionsByField.value[fieldCode] = []
+    referenceErrorsByField.value[fieldCode] = formatError(err)
+  } finally {
+    if (referenceSearchSeqByField.value[fieldCode] === seq) {
+      referenceLoadingByField.value[fieldCode] = false
+    }
+  }
+}
+
+async function refreshReferenceLookupsForCurrentSchema(): Promise<void> {
+  const referenceFields = fields.value.filter((field) => field.dataType === 'reference' && Boolean(field.refDictionaryId))
+  const nextOptions: Record<string, ReferenceOption[]> = {}
+  const nextCache: Record<string, Record<string, ReferenceOption>> = {}
+  const nextLoading: Record<string, boolean> = {}
+  const nextErrors: Record<string, string> = {}
+  const nextSeq: Record<string, number> = {}
+
+  for (const field of referenceFields) {
+    nextOptions[field.code] = referenceOptionsByField.value[field.code] ?? []
+    nextCache[field.code] = referenceOptionCacheByField.value[field.code] ?? {}
+    nextLoading[field.code] = false
+    nextErrors[field.code] = ''
+    nextSeq[field.code] = referenceSearchSeqByField.value[field.code] ?? 0
+  }
+
+  referenceOptionsByField.value = nextOptions
+  referenceOptionCacheByField.value = nextCache
+  referenceLoadingByField.value = nextLoading
+  referenceErrorsByField.value = nextErrors
+  referenceSearchSeqByField.value = nextSeq
+
+  await Promise.all(
+    referenceFields.map((field) => searchReferenceOptionsForField(field.code, '')),
+  )
+}
+
 async function loadBootData(): Promise<void> {
   loading.value = true
   clearFeedback()
@@ -771,11 +1214,17 @@ async function loadBootData(): Promise<void> {
 
     const queryDictionaryId = String(route.query.dictionaryId ?? '').trim()
     const exists = dictionaries.value.some((item) => item.id === queryDictionaryId)
+    const targetDictionaryId =
+      exists ? queryDictionaryId : selectedDictionaryId.value || dictionaries.value[0]?.id || ''
 
-    if (exists) {
-      selectedDictionaryId.value = queryDictionaryId
-    } else if (!selectedDictionaryId.value && dictionaries.value.length > 0) {
-      selectedDictionaryId.value = dictionaries.value[0].id
+    if (!targetDictionaryId) {
+      await loadDictionaryWorkspace()
+      return
+    }
+
+    if (selectedDictionaryId.value !== targetDictionaryId) {
+      selectedDictionaryId.value = targetDictionaryId
+      return
     }
 
     await loadDictionaryWorkspace()
@@ -791,12 +1240,18 @@ async function loadDictionaryWorkspace(): Promise<void> {
     currentSchema.value = []
     rows.value = []
     rowsTotal.value = 0
+    referenceOptionsByField.value = {}
+    referenceOptionCacheByField.value = {}
+    referenceLoadingByField.value = {}
+    referenceErrorsByField.value = {}
+    referenceSearchSeqByField.value = {}
     return
   }
 
   try {
     const schemaResult = await mdmApi.getDictionarySchema(selectedDictionaryId.value)
     currentSchema.value = schemaResult.attributes
+    await refreshReferenceLookupsForCurrentSchema()
     await refreshRows()
   } catch (err) {
     error.value = formatError(err)
@@ -877,6 +1332,11 @@ async function createEntryFromForm(): Promise<void> {
     await refreshRows()
     message.value = 'Объект создан'
   } catch (err) {
+    const validationIssues = extractValidationIssues(err)
+    if (validationIssues.length > 0) {
+      createIssues.value = validationIssues
+      return
+    }
     error.value = formatError(err)
   } finally {
     busy.value = false
@@ -893,13 +1353,13 @@ async function saveEntryEdit(): Promise<void> {
   editIssues.value = []
 
   try {
-    const built = buildEditFinalData()
+    const built = buildEditPatch()
     if (built.issues.length > 0) {
       editIssues.value = built.issues
       return
     }
 
-    const patch = buildPatchDelta(editOriginal.value, built.final)
+    const patch = built.patch
     if (Object.keys(patch).length === 0) {
       message.value = 'Изменений нет'
       return
@@ -910,6 +1370,11 @@ async function saveEntryEdit(): Promise<void> {
     await refreshRows()
     message.value = 'Объект обновлен'
   } catch (err) {
+    const validationIssues = extractValidationIssues(err)
+    if (validationIssues.length > 0) {
+      editIssues.value = validationIssues
+      return
+    }
     error.value = formatError(err)
   } finally {
     busy.value = false
@@ -1254,7 +1719,54 @@ onMounted(loadBootData)
                 {{ field.name }} <span class="muted">({{ field.code }})</span>
                 <span v-if="field.required" class="required-mark">*</span>
               </span>
-              <template v-if="field.isMultivalue">
+              <template v-if="field.dataType === 'reference' && field.isMultivalue">
+                <div class="reference-control">
+                  <input
+                    v-model="createReferenceSearch[field.code]"
+                    placeholder="Поиск по id / external_key / данным"
+                    :disabled="!selectedDictionaryId || !canWrite || busy || referenceLoading(field)"
+                    @input="onCreateReferenceSearchInput(field.code)"
+                  />
+                  <div class="reference-options-list">
+                    <label
+                      v-for="option in visibleReferenceOptionsFor('create', field)"
+                      :key="option.id"
+                      class="check reference-option"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="isReferenceSelected('create', field.code, option.id)"
+                        :disabled="!selectedDictionaryId || !canWrite || busy || referenceLoading(field)"
+                        @change="
+                          toggleReferenceSelection(
+                            'create',
+                            field.code,
+                            option.id,
+                            ($event.target as HTMLInputElement).checked,
+                          )
+                        "
+                      />
+                      {{ option.label }}
+                    </label>
+                    <span
+                      v-if="visibleReferenceOptionsFor('create', field).length === 0"
+                      class="muted"
+                    >
+                      Нет значений по фильтру
+                    </span>
+                  </div>
+                </div>
+                <span class="validator-hints reference-inline-hint">
+                  Выбрано: {{ createSelectedReferenceIds(field.code).length }}
+                </span>
+                <span v-if="referenceLoading(field)" class="validator-hints reference-inline-hint">
+                  Загрузка ссылочных значений ({{ referenceDictionaryLabel(field) }})...
+                </span>
+                <span v-else-if="referenceError(field)" class="validator-hints reference-inline-hint">
+                  Не удалось загрузить ссылочные значения: {{ referenceError(field) }}
+                </span>
+              </template>
+              <template v-else-if="field.isMultivalue">
                 <textarea
                   v-model="createValues[field.code]"
                   class="code-area code-area-compact"
@@ -1268,6 +1780,32 @@ onMounted(loadBootData)
                   <option value="true">true</option>
                   <option value="false">false</option>
                 </select>
+              </template>
+              <template v-else-if="field.dataType === 'reference'">
+                <div class="reference-control">
+                  <input
+                    v-model="createReferenceSearch[field.code]"
+                    placeholder="Поиск по id / external_key / данным"
+                    :disabled="!selectedDictionaryId || !canWrite || busy || referenceLoading(field)"
+                    @input="onCreateReferenceSearchInput(field.code)"
+                  />
+                  <select v-model="createValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy || referenceLoading(field)">
+                    <option value="">—</option>
+                    <option
+                      v-for="option in visibleReferenceOptionsFor('create', field)"
+                      :key="option.id"
+                      :value="option.id"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </div>
+                <span v-if="referenceLoading(field)" class="validator-hints reference-inline-hint">
+                  Загрузка ссылочных значений ({{ referenceDictionaryLabel(field) }})...
+                </span>
+                <span v-else-if="referenceError(field)" class="validator-hints reference-inline-hint">
+                  Не удалось загрузить ссылочные значения: {{ referenceError(field) }}
+                </span>
               </template>
               <template v-else-if="field.dataType === 'enum' && enumOptions(field).length > 0">
                 <select v-model="createValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
@@ -1329,7 +1867,54 @@ onMounted(loadBootData)
                 {{ field.name }} <span class="muted">({{ field.code }})</span>
                 <span v-if="field.required" class="required-mark">*</span>
               </span>
-              <template v-if="field.isMultivalue">
+              <template v-if="field.dataType === 'reference' && field.isMultivalue">
+                <div class="reference-control">
+                  <input
+                    v-model="editReferenceSearch[field.code]"
+                    placeholder="Поиск по id / external_key / данным"
+                    :disabled="!selectedDictionaryId || !canWrite || busy || referenceLoading(field)"
+                    @input="onEditReferenceSearchInput(field.code)"
+                  />
+                  <div class="reference-options-list">
+                    <label
+                      v-for="option in visibleReferenceOptionsFor('edit', field)"
+                      :key="option.id"
+                      class="check reference-option"
+                    >
+                      <input
+                        type="checkbox"
+                        :checked="isReferenceSelected('edit', field.code, option.id)"
+                        :disabled="!selectedDictionaryId || !canWrite || busy || referenceLoading(field)"
+                        @change="
+                          toggleReferenceSelection(
+                            'edit',
+                            field.code,
+                            option.id,
+                            ($event.target as HTMLInputElement).checked,
+                          )
+                        "
+                      />
+                      {{ option.label }}
+                    </label>
+                    <span
+                      v-if="visibleReferenceOptionsFor('edit', field).length === 0"
+                      class="muted"
+                    >
+                      Нет значений по фильтру
+                    </span>
+                  </div>
+                </div>
+                <span class="validator-hints reference-inline-hint">
+                  Выбрано: {{ editSelectedReferenceIds(field.code).length }}
+                </span>
+                <span v-if="referenceLoading(field)" class="validator-hints reference-inline-hint">
+                  Загрузка ссылочных значений ({{ referenceDictionaryLabel(field) }})...
+                </span>
+                <span v-else-if="referenceError(field)" class="validator-hints reference-inline-hint">
+                  Не удалось загрузить ссылочные значения: {{ referenceError(field) }}
+                </span>
+              </template>
+              <template v-else-if="field.isMultivalue">
                 <textarea
                   v-model="editValues[field.code]"
                   class="code-area code-area-compact"
@@ -1343,6 +1928,38 @@ onMounted(loadBootData)
                   <option value="true">true</option>
                   <option value="false">false</option>
                 </select>
+              </template>
+              <template v-else-if="field.dataType === 'reference'">
+                <div class="reference-control">
+                  <input
+                    v-model="editReferenceSearch[field.code]"
+                    placeholder="Поиск по id / external_key / данным"
+                    :disabled="!selectedDictionaryId || !canWrite || busy || referenceLoading(field)"
+                    @input="onEditReferenceSearchInput(field.code)"
+                  />
+                  <select v-model="editValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy || referenceLoading(field)">
+                    <option value="">—</option>
+                    <option
+                      v-for="option in visibleReferenceOptionsFor('edit', field)"
+                      :key="option.id"
+                      :value="option.id"
+                    >
+                      {{ option.label }}
+                    </option>
+                  </select>
+                </div>
+                <span
+                  v-if="currentResolvedReference(field.code) && (editValues[field.code] ?? '').trim() === ''"
+                  class="validator-hints reference-inline-hint"
+                >
+                  Текущее значение: {{ currentResolvedReference(field.code) }}
+                </span>
+                <span v-if="referenceLoading(field)" class="validator-hints reference-inline-hint">
+                  Загрузка ссылочных значений ({{ referenceDictionaryLabel(field) }})...
+                </span>
+                <span v-else-if="referenceError(field)" class="validator-hints reference-inline-hint">
+                  Не удалось загрузить ссылочные значения: {{ referenceError(field) }}
+                </span>
               </template>
               <template v-else-if="field.dataType === 'enum' && enumOptions(field).length > 0">
                 <select v-model="editValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">

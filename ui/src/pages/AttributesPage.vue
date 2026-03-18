@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-vue-next'
 
@@ -42,6 +42,7 @@ const editForm = reactive({
 const editModalOpen = ref(false)
 
 const canWrite = computed(() => !identity.isDev || hasAnyRole(identity.currentRoles, ['mdm_admin', 'mdm_editor']))
+const isReferenceTypeSelected = computed(() => createForm.data_type === 'reference')
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / limit.value)))
 const currentPage = computed(() => Math.min(pageCount.value, Math.floor(offset.value / limit.value) + 1))
 
@@ -271,6 +272,15 @@ function goToPage(page: number): void {
   void load()
 }
 
+watch(
+  () => createForm.data_type,
+  (nextType) => {
+    if (nextType !== 'reference') {
+      createForm.ref_dictionary_id = ''
+    }
+  },
+)
+
 onMounted(load)
 </script>
 
@@ -307,15 +317,15 @@ onMounted(load)
             <option v-for="dataType in dataTypes" :key="dataType" :value="dataType">{{ dataType }}</option>
           </select>
         </label>
-        <label>
+        <label :class="{ 'field-disabled': !isReferenceTypeSelected }">
           Ссылочный справочник
           <select
             v-model="createForm.ref_dictionary_id"
-            :disabled="!canWrite || submitting || createForm.data_type !== 'reference'"
+            :disabled="!canWrite || submitting || !isReferenceTypeSelected"
           >
             <option value="">Выберите справочник</option>
             <option v-for="dictionary in dictionaries" :key="dictionary.id" :value="dictionary.id">
-              {{ dictionary.code }}
+              {{ dictionary.code }} — {{ dictionary.name }}
             </option>
           </select>
         </label>

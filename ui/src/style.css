@@ -683,6 +683,12 @@ select[size] {
   padding-right: 10px;
 }
 
+label.field-disabled select:disabled {
+  color: #7d8fae;
+  border-color: #d8e1ef;
+  background-color: #f3f7fc;
+}
+
 textarea {
   min-height: 120px;
   resize: vertical;
@@ -919,6 +925,32 @@ textarea:focus {
   padding: 10px;
   display: grid;
   gap: 8px;
+}
+
+.reference-control {
+  display: grid;
+  gap: 6px;
+}
+
+.reference-options-list {
+  max-height: 170px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-element);
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.reference-option {
+  font-weight: 600;
+  color: #39557a;
+}
+
+.reference-inline-hint {
+  display: block;
+  margin-top: 6px;
 }
 
 label.required::after {
