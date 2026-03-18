@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-vue-next'
 
 import JsonBox from '../components/JsonBox.vue'
 import { type Dictionary, type Entry, type SearchRequest, mdmApi } from '../lib/api'
@@ -112,25 +113,6 @@ function cancelEdit(): void {
     editForm.dataJson = '{\n  \n}'
 }
 
-async function refreshEntry(entryId: string): Promise<void> {
-    if (!selectedDictionaryId.value) {
-        return
-    }
-
-    try {
-        const fresh = await mdmApi.getEntry(selectedDictionaryId.value, entryId)
-        const index = entries.value.findIndex((item) => item.id === entryId)
-        if (index >= 0) {
-            entries.value[index] = fresh
-        }
-        if (editForm.entryId === entryId) {
-            editForm.dataJson = JSON.stringify(fresh.data, null, 2)
-        }
-    } catch (err) {
-        error.value = formatError(err)
-    }
-}
-
 async function saveEdit(): Promise<void> {
     if (!selectedDictionaryId.value || !editForm.entryId || !canWrite.value) {
         return
@@ -230,7 +212,10 @@ onMounted(async () => {
                 <h1>Объекты справочника</h1>
                 <p class="muted">CRUD и поиск по entries, включая динамические фильтры.</p>
             </div>
-            <button class="btn" :disabled="loading || !selectedDictionaryId" @click="loadEntries">Обновить</button>
+            <button class="btn" :disabled="loading || !selectedDictionaryId" @click="loadEntries">
+                <RefreshCw class="btn-icon" :size="16" aria-hidden="true" />
+                Обновить
+            </button>
         </div>
 
         <p v-if="message" class="alert success">{{ message }}</p>
@@ -264,7 +249,10 @@ onMounted(async () => {
                 </label>
                 <div class="form-actions">
                     <button class="btn primary"
-                        :disabled="!canWrite || submitting || !selectedDictionaryId">Создать</button>
+                        :disabled="!canWrite || submitting || !selectedDictionaryId">
+                        <Plus class="btn-icon" :size="16" aria-hidden="true" />
+                        Создать
+                    </button>
                 </div>
             </form>
             <p v-if="!canWrite" class="muted">Нет прав на изменение (`mdm_editor` или `mdm_admin`).</p>
@@ -273,11 +261,6 @@ onMounted(async () => {
         <article class="card">
             <div class="card-title-line">
                 <h3>Список ({{ total }})</h3>
-                <div class="pager">
-                    <button class="btn" :disabled="offset === 0" @click="prevPage">Назад</button>
-                    <span>{{ offset + 1 }}-{{ Math.min(offset + limit, total) }}</span>
-                    <button class="btn" :disabled="offset + limit >= total" @click="nextPage">Вперед</button>
-                </div>
             </div>
 
             <div class="table-wrap">
@@ -299,14 +282,33 @@ onMounted(async () => {
                             <td>{{ item.external_key || '—' }}</td>
                             <td>{{ item.version }}</td>
                             <td class="actions-row">
-                                <button class="btn" @click="refreshEntry(item.id)">Get</button>
-                                <button class="btn" :disabled="!canWrite" @click="beginEdit(item)">Patch</button>
-                                <button class="btn danger" :disabled="!canWrite"
-                                    @click="removeEntry(item.id)">Delete</button>
+                                <button class="btn btn-icon-only" title="Изменить объект" :disabled="!canWrite" @click="beginEdit(item)">
+                                    <Pencil :size="16" aria-hidden="true" />
+                                    <span class="sr-only">Изменить объект</span>
+                                </button>
+                                <button class="btn danger btn-icon-only" title="Удалить объект" :disabled="!canWrite"
+                                    @click="removeEntry(item.id)">
+                                    <Trash2 :size="16" aria-hidden="true" />
+                                    <span class="sr-only">Удалить объект</span>
+                                </button>
                             </td>
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <div class="table-pagination">
+                <div class="pager">
+                    <button class="btn" :disabled="offset === 0" @click="prevPage">
+                        <ChevronLeft class="btn-icon" :size="16" aria-hidden="true" />
+                        Назад
+                    </button>
+                    <span>{{ offset + 1 }}-{{ Math.min(offset + limit, total) }}</span>
+                    <button class="btn" :disabled="offset + limit >= total" @click="nextPage">
+                        Вперед
+                        <ChevronRight class="btn-icon" :size="16" aria-hidden="true" />
+                    </button>
+                </div>
             </div>
         </article>
 
@@ -318,8 +320,14 @@ onMounted(async () => {
                     <textarea v-model="editForm.dataJson" class="code-area" :disabled="submitting"></textarea>
                 </label>
                 <div class="form-actions">
-                    <button class="btn primary" :disabled="submitting">Сохранить</button>
-                    <button type="button" class="btn" :disabled="submitting" @click="cancelEdit">Отмена</button>
+                    <button class="btn primary" :disabled="submitting">
+                        <Pencil class="btn-icon" :size="16" aria-hidden="true" />
+                        Сохранить
+                    </button>
+                    <button type="button" class="btn" :disabled="submitting" @click="cancelEdit">
+                        <X class="btn-icon" :size="16" aria-hidden="true" />
+                        Отмена
+                    </button>
                 </div>
             </form>
         </article>

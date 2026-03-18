@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink } from 'vue-router'
+import { BookOpen, ChevronLeft, ChevronRight, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-vue-next'
 
 import { type Dictionary, mdmApi } from '../lib/api'
 import { formatError } from '../lib/errors'
@@ -19,6 +20,7 @@ const loading = ref(false)
 const submitting = ref(false)
 const message = ref('')
 const error = ref('')
+const searchText = ref('')
 
 const createForm = reactive({
     code: '',
@@ -33,6 +35,46 @@ const editForm = reactive({
 })
 
 const canWrite = computed(() => !identity.isDev || hasAnyRole(identity.currentRoles, ['mdm_admin', 'mdm_editor']))
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / limit.value)))
+const currentPage = computed(() => Math.min(pageCount.value, Math.floor(offset.value / limit.value) + 1))
+
+type PaginationItem = number | 'ellipsis-left' | 'ellipsis-right'
+const paginationItems = computed<PaginationItem[]>(() => {
+    const totalPages = pageCount.value
+    const page = currentPage.value
+
+    if (totalPages <= 7) {
+        return Array.from({ length: totalPages }, (_, index) => index + 1)
+    }
+
+    const items: PaginationItem[] = [1]
+    const left = Math.max(2, page - 1)
+    const right = Math.min(totalPages - 1, page + 1)
+
+    if (left > 2) {
+        items.push('ellipsis-left')
+    }
+    for (let current = left; current <= right; current += 1) {
+        items.push(current)
+    }
+    if (right < totalPages - 1) {
+        items.push('ellipsis-right')
+    }
+    items.push(totalPages)
+
+    return items
+})
+
+const filteredList = computed(() => {
+    const query = searchText.value.trim().toLowerCase()
+    if (!query) {
+        return list.value
+    }
+    return list.value.filter((item) => {
+        const haystack = `${item.code} ${item.name} ${item.description ?? ''}`.toLowerCase()
+        return haystack.includes(query)
+    })
+})
 
 async function load(): Promise<void> {
     loading.value = true
@@ -171,6 +213,19 @@ function prevPage(): void {
     void load()
 }
 
+function applyPageSize(): void {
+    offset.value = 0
+    void load()
+}
+
+function goToPage(page: number): void {
+    if (page < 1 || page > pageCount.value || page === currentPage.value) {
+        return
+    }
+    offset.value = (page - 1) * limit.value
+    void load()
+}
+
 onMounted(load)
 </script>
 
@@ -181,7 +236,10 @@ onMounted(load)
                 <h1>Справочники</h1>
                 <p class="muted">Создание справочников и переход к настройке их атрибутов.</p>
             </div>
-            <button class="btn" :disabled="loading" @click="load">Обновить</button>
+            <button class="btn" :disabled="loading" @click="load">
+                <RefreshCw class="btn-icon" :size="16" aria-hidden="true" />
+                Обновить
+            </button>
         </div>
 
         <p v-if="message" class="alert success">{{ message }}</p>
@@ -205,7 +263,10 @@ onMounted(load)
                 </label>
 
                 <div class="form-actions">
-                    <button class="btn primary" :disabled="!canWrite || submitting">Создать</button>
+                    <button class="btn primary" :disabled="!canWrite || submitting">
+                        <Plus class="btn-icon" :size="16" aria-hidden="true" />
+                        Создать
+                    </button>
                 </div>
             </form>
             <p v-if="!canWrite" class="muted">Нет прав на изменение (`mdm_editor` или `mdm_admin`).</p>
@@ -214,44 +275,95 @@ onMounted(load)
         <article class="card">
             <div class="card-title-line">
                 <h3>Список ({{ total }})</h3>
-                <div class="pager">
-                    <button class="btn" :disabled="offset === 0" @click="prevPage">Назад</button>
-                    <span>{{ offset + 1 }}-{{ Math.min(offset + limit, total) }}</span>
-                    <button class="btn" :disabled="offset + limit >= total" @click="nextPage">Вперед</button>
-                </div>
+            </div>
+            <div class="table-toolbar">
+                <label>
+                    Быстрый поиск
+                    <input v-model="searchText" placeholder="Код, имя или описание" />
+                </label>
             </div>
 
             <div class="table-wrap">
                 <table class="table">
                     <thead>
                         <tr>
-                            <th>Code</th>
-                            <th>Name</th>
-                            <th>Description</th>
-                            <th>Schema ver.</th>
+                            <th>Код</th>
+                            <th>Название</th>
+                            <th>Описание</th>
+                            <th>Версия схемы</th>
                             <th>Атрибутов в схеме</th>
-                            <th class="actions">Actions</th>
+                            <th class="actions">Действия</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr v-if="loading">
                             <td colspan="6" class="muted">Загрузка...</td>
                         </tr>
-                        <tr v-for="item in list" :key="item.id">
+                        <tr v-if="!loading && filteredList.length === 0">
+                            <td colspan="6" class="muted">По фильтру ничего не найдено.</td>
+                        </tr>
+                        <tr v-for="item in filteredList" :key="item.id">
                             <td><code>{{ item.code }}</code></td>
                             <td>{{ item.name }}</td>
                             <td>{{ item.description || '—' }}</td>
                             <td>{{ item.schema_version }}</td>
                             <td>{{ schemaSizeByDictionary[item.id] ?? '—' }}</td>
                             <td class="actions-row">
-                                <RouterLink class="btn" :to="`/dictionaries/${item.id}`">Open</RouterLink>
-                                <button class="btn" :disabled="!canWrite" @click="beginEdit(item)">Edit</button>
-                                <button class="btn danger" :disabled="!canWrite"
-                                    @click="removeDictionary(item.id)">Delete</button>
+                                <RouterLink class="btn btn-icon-only" title="Открыть справочник" :to="`/dictionaries/${item.id}`">
+                                    <BookOpen :size="16" aria-hidden="true" />
+                                    <span class="sr-only">Открыть справочник</span>
+                                </RouterLink>
+                                <button class="btn btn-icon-only" title="Изменить справочник" :disabled="!canWrite" @click="beginEdit(item)">
+                                    <Pencil :size="16" aria-hidden="true" />
+                                    <span class="sr-only">Изменить справочник</span>
+                                </button>
+                                <button class="btn danger btn-icon-only" title="Удалить справочник" :disabled="!canWrite"
+                                    @click="removeDictionary(item.id)">
+                                    <Trash2 :size="16" aria-hidden="true" />
+                                    <span class="sr-only">Удалить справочник</span>
+                                </button>
                             </td>
                         </tr>
                     </tbody>
                 </table>
+            </div>
+
+            <div class="table-pagination">
+                <nav class="pagination-nav" role="navigation" aria-label="pagination">
+                    <ul class="pagination-list">
+                        <li>
+                            <button class="pagination-link pagination-edge" :disabled="offset === 0" @click="prevPage">
+                                <ChevronLeft :size="16" aria-hidden="true" />
+                                <span class="pagination-edge-text">Назад</span>
+                            </button>
+                        </li>
+                        <li v-for="item in paginationItems" :key="String(item)">
+                            <span v-if="item === 'ellipsis-left' || item === 'ellipsis-right'" class="pagination-ellipsis">…</span>
+                            <button
+                                v-else
+                                class="pagination-link"
+                                :class="{ active: item === currentPage }"
+                                @click="goToPage(item)"
+                            >
+                                {{ item }}
+                            </button>
+                        </li>
+                        <li>
+                            <button class="pagination-link pagination-edge" :disabled="offset + limit >= total" @click="nextPage">
+                                <span class="pagination-edge-text">Вперед</span>
+                                <ChevronRight :size="16" aria-hidden="true" />
+                            </button>
+                        </li>
+                    </ul>
+                </nav>
+                <label class="pagination-size">
+                    На странице
+                    <select v-model.number="limit" @change="applyPageSize">
+                        <option :value="20">20</option>
+                        <option :value="50">50</option>
+                        <option :value="100">100</option>
+                    </select>
+                </label>
             </div>
         </article>
 
@@ -267,8 +379,14 @@ onMounted(load)
                     <input v-model="editForm.description" :disabled="submitting" />
                 </label>
                 <div class="form-actions">
-                    <button class="btn primary" :disabled="submitting">Сохранить</button>
-                    <button type="button" class="btn" :disabled="submitting" @click="cancelEdit">Отмена</button>
+                    <button class="btn primary" :disabled="submitting">
+                        <Pencil class="btn-icon" :size="16" aria-hidden="true" />
+                        Сохранить
+                    </button>
+                    <button type="button" class="btn" :disabled="submitting" @click="cancelEdit">
+                        <X class="btn-icon" :size="16" aria-hidden="true" />
+                        Отмена
+                    </button>
                 </div>
             </form>
         </article>

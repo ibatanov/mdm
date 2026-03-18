@@ -3,6 +3,11 @@
 Базовый путь: `/api/v1`
 Служебные endpoint-ы (вне базового пути): `GET /healthz`, `GET /readyz`.
 
+## Статус верификации API (e2e)
+- Последний полный e2e прогон: `2026-03-17` (домен: автозапчасти).
+- Подтверждено: типы `string`, `number`, `date`, `boolean`, `enum`, `reference`, multivalue-поля; полный CRUD для dictionaries/attributes/schema/entries; поиск и edge-cases.
+- Детализация прогона и список аномалий: `docs/backend-e2e.md`.
+
 ## Общие правила
 - Формат времени: ISO 8601 (UTC).
 - Все ответы содержат `request_id`.
@@ -160,6 +165,7 @@ GET /dictionaries?limit=50&offset=0
 
 Примечание:
 - Поле `attributes` в `PUT /dictionaries/{dictionary_id}/schema` является обязательным (может быть пустым массивом для очистки схемы).
+- Если `is_multivalue=true`, значение атрибута в объекте должно быть JSON-массивом.
 
 ## Объекты справочника
 - `POST /dictionaries/{dictionary_id}/entries`
@@ -188,6 +194,9 @@ GET /dictionaries?limit=50&offset=0
 Примечания:
 - `PATCH /dictionaries/{dictionary_id}/entries/{entry_id}` объединяет `data` с текущим состоянием объекта.
 - Если в `PATCH` передать значение атрибута как `null`, атрибут удаляется из объекта.
+- Для `data_type=date` ожидается строка в формате `YYYY-MM-DD`.
+- Для `data_type=boolean` ожидается JSON boolean (`true`/`false`).
+- Для `data_type=reference` ожидается UUID существующего объекта из связанного справочника.
 - Ошибка `422 validation_failed` для валидации объекта содержит `details.issues` (массив проблем с полями `field`, `code`, `message`).
 
 Типовые `code` в `details.issues` для валидации объектов:
@@ -228,6 +237,20 @@ GET /dictionaries?limit=50&offset=0
 - `in`
 - `contains`, `prefix`
 - `range`
+
+Правила параметров поиска:
+- Для `eq`, `ne`, `contains`, `prefix`, `lt`, `lte`, `gt`, `gte` используется поле `value`.
+- Для `in` используется поле `values` (непустой массив).
+- Для `range` используются поля `from` и `to`.
+- Если `page` не передан, применяются значения по умолчанию: `limit=50`, `offset=0`.
+
+Сортировка:
+- `sort.direction`: `asc` или `desc` (`asc` по умолчанию, если не задано).
+- Сейчас сортировка по атрибутам выполняется по строковому представлению JSON-поля (`data ->> attribute`), без явного приведения к числу/дате.
+
+## Известные ограничения (по результатам e2e 2026-03-17)
+- Сортировка по числовым атрибутам может быть лексикографической, а не числовой (подтверждено на `price DESC`).
+- При `DELETE /dictionaries/{dictionary_id}` ответ может быть успешным (`204`), но в серверном логе может фиксироваться ошибка записи audit-события из-за FK (`audit_events_dictionary_fk`).
 
 ## Аудит
 - `GET /audit/events`

@@ -1,8 +1,21 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Settings2,
+  SlidersHorizontal,
+  Trash2,
+  X,
+} from 'lucide-vue-next'
 
-import JsonBox from '../components/JsonBox.vue'
 import {
   type Attribute,
   type Dictionary,
@@ -34,13 +47,9 @@ interface DictionaryField {
   name: string
   dataType: Attribute['data_type']
   required: boolean
+  isUnique: boolean
   isMultivalue: boolean
   validators: Record<string, unknown>
-}
-
-interface GlobalObjectRow {
-  dictionary: Dictionary
-  entry: Entry
 }
 
 const SEARCH_OPS: Array<{ value: SearchOp; label: string }> = [
@@ -51,9 +60,9 @@ const SEARCH_OPS: Array<{ value: SearchOp; label: string }> = [
   { value: 'gt', label: '>' },
   { value: 'gte', label: '>=' },
   { value: 'in', label: 'IN' },
-  { value: 'contains', label: 'contains' },
-  { value: 'prefix', label: 'prefix' },
-  { value: 'range', label: 'range' },
+  { value: 'contains', label: 'содержит' },
+  { value: 'prefix', label: 'начинается с' },
+  { value: 'range', label: 'диапазон' },
 ]
 
 const route = useRoute()
@@ -62,7 +71,6 @@ const identity = useDevIdentityStore()
 const loading = ref(false)
 const busy = ref(false)
 const searching = ref(false)
-const globalSearching = ref(false)
 const error = ref('')
 const message = ref('')
 
@@ -71,37 +79,33 @@ const attributes = ref<Attribute[]>([])
 const selectedDictionaryId = ref('')
 const currentSchema = ref<SchemaAttribute[]>([])
 
-const entries = ref<Entry[]>([])
-const entriesTotal = ref(0)
-const entriesLimit = ref(20)
-const entriesOffset = ref(0)
+const rows = ref<Entry[]>([])
+const rowsTotal = ref(0)
+const pageLimit = ref(20)
+const pageOffset = ref(0)
 
+const createModalOpen = ref(false)
 const createExternalKey = ref('')
 const createValues = ref<Record<string, string>>({})
 const createIssues = ref<string[]>([])
 
 const editEntryId = ref('')
 const editValues = ref<Record<string, string>>({})
-const editClear = ref<Record<string, boolean>>({})
 const editOriginal = ref<Record<string, unknown>>({})
 const editIssues = ref<string[]>([])
 
 const searchRows = ref<SearchRowDraft[]>([])
-const searchResult = ref<Entry[]>([])
-const searchTotal = ref(0)
-const searchLimit = ref(20)
-const searchOffset = ref(0)
 const searchSortAttribute = ref('')
 const searchSortDirection = ref<'asc' | 'desc'>('asc')
 const searchIssues = ref<string[]>([])
+const filtersApplied = ref(false)
 
-const globalQuery = ref('')
-const globalLimitPerDictionary = ref(30)
-const globalRows = ref<GlobalObjectRow[]>([])
-const globalTotal = ref(0)
-const globalIssues = ref<string[]>([])
+const columnVisibility = ref<Record<string, boolean>>({})
+const columnModalOpen = ref(false)
 
 const canWrite = computed(() => !identity.isDev || hasAnyRole(identity.currentRoles, ['mdm_admin', 'mdm_editor']))
+const pageCount = computed(() => Math.max(1, Math.ceil(rowsTotal.value / pageLimit.value)))
+const currentPage = computed(() => Math.min(pageCount.value, Math.floor(pageOffset.value / pageLimit.value) + 1))
 
 const selectedDictionary = computed(() =>
   dictionaries.value.find((dictionary) => dictionary.id === selectedDictionaryId.value) ?? null,
@@ -130,6 +134,7 @@ const fields = computed<DictionaryField[]>(() => {
       name: attribute.name,
       dataType: attribute.data_type,
       required: item.required,
+      isUnique: item.is_unique,
       isMultivalue: item.is_multivalue,
       validators: asRecord(item.validators),
     })
@@ -146,21 +151,27 @@ const fieldsByCode = computed(() => {
   return map
 })
 
+const visibleFields = computed(() =>
+  fields.value.filter((field) => {
+    const visible = columnVisibility.value[field.code]
+    return visible === undefined ? true : visible
+  }),
+)
+
 watch(
   fields,
   () => {
     initializeCreateValues()
-    syncSearchDefaults()
+    syncSearchRows()
+    initializeColumnVisibility()
   },
   { immediate: true },
 )
 
 watch(selectedDictionaryId, () => {
-  entriesOffset.value = 0
+  pageOffset.value = 0
   clearEntryEditor()
-  searchResult.value = []
-  searchTotal.value = 0
-  searchIssues.value = []
+  resetFiltersState()
   void loadDictionaryWorkspace()
 })
 
@@ -207,13 +218,147 @@ function makeSearchRow(partial?: Partial<SearchRowDraft>): SearchRowDraft {
   }
 }
 
-function syncSearchDefaults(): void {
-  if (searchRows.value.length === 0 && fields.value.length > 0) {
-    searchRows.value = [makeSearchRow({ attribute: fields.value[0].code, op: 'eq' })]
+function syncSearchRows(): void {
+  if (fields.value.length === 0) {
+    searchRows.value = []
+    return
   }
-  if (!searchSortAttribute.value && fields.value.length > 0) {
-    searchSortAttribute.value = fields.value[0].code
+  const allowed = new Set(fields.value.map((field) => field.code))
+  searchRows.value = searchRows.value.map((row) => ({
+    ...row,
+    attribute: allowed.has(row.attribute) ? row.attribute : '',
+  }))
+}
+
+function resetFiltersState(): void {
+  searchRows.value = []
+  searchIssues.value = []
+  filtersApplied.value = false
+}
+
+function initializeColumnVisibility(): void {
+  const next: Record<string, boolean> = {}
+
+  for (let index = 0; index < fields.value.length; index += 1) {
+    const field = fields.value[index]
+    if (Object.prototype.hasOwnProperty.call(columnVisibility.value, field.code)) {
+      next[field.code] = Boolean(columnVisibility.value[field.code])
+    } else {
+      next[field.code] = index < 6
+    }
   }
+
+  if (fields.value.length > 0 && !Object.values(next).some(Boolean)) {
+    next[fields.value[0].code] = true
+  }
+
+  columnVisibility.value = next
+}
+
+function restoreColumnDefaults(): void {
+  const next: Record<string, boolean> = {}
+  for (let index = 0; index < fields.value.length; index += 1) {
+    next[fields.value[index].code] = index < 6
+  }
+  if (fields.value.length > 0 && !Object.values(next).some(Boolean)) {
+    next[fields.value[0].code] = true
+  }
+  columnVisibility.value = next
+}
+
+function showAllColumns(): void {
+  const next: Record<string, boolean> = {}
+  for (const field of fields.value) {
+    next[field.code] = true
+  }
+  columnVisibility.value = next
+}
+
+function searchValuePlaceholder(row: SearchRowDraft): string {
+  if (row.op === 'contains') {
+    return 'Содержит...'
+  }
+  if (row.op === 'prefix') {
+    return 'Начинается с...'
+  }
+  if (row.op === 'in') {
+    return 'Значения через запятую'
+  }
+  return 'Значение'
+}
+
+function hasAnyFilterCondition(): boolean {
+  return searchRows.value.some((row) => {
+    const hasAttribute = row.attribute.trim() !== ''
+    const hasValue =
+      row.value.trim() !== '' || row.values.trim() !== '' || row.from.trim() !== '' || row.to.trim() !== ''
+    return hasAttribute && hasValue
+  })
+}
+
+function objectKeyLabel(entry: Entry): string {
+  const key = entry.external_key?.trim()
+  if (key) {
+    return key
+  }
+  return `ID ${entry.id.slice(0, 8)}`
+}
+
+type PaginationItem = number | 'ellipsis-left' | 'ellipsis-right'
+
+const paginationItems = computed<PaginationItem[]>(() => {
+  const total = pageCount.value
+  const current = currentPage.value
+
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, index) => index + 1)
+  }
+
+  const items: PaginationItem[] = [1]
+  const left = Math.max(2, current - 1)
+  const right = Math.min(total - 1, current + 1)
+
+  if (left > 2) {
+    items.push('ellipsis-left')
+  }
+  for (let page = left; page <= right; page += 1) {
+    items.push(page)
+  }
+  if (right < total - 1) {
+    items.push('ellipsis-right')
+  }
+  items.push(total)
+
+  return items
+})
+
+function sortIconFor(fieldCode: string) {
+  if (searchSortAttribute.value !== fieldCode) {
+    return ArrowUpDown
+  }
+  return searchSortDirection.value === 'asc' ? ArrowUp : ArrowDown
+}
+
+function toggleSort(fieldCode: string): void {
+  if (!selectedDictionaryId.value) {
+    return
+  }
+
+  if (searchSortAttribute.value !== fieldCode) {
+    searchSortAttribute.value = fieldCode
+    searchSortDirection.value = 'asc'
+  } else if (searchSortDirection.value === 'asc') {
+    searchSortDirection.value = 'desc'
+  } else {
+    searchSortAttribute.value = ''
+    searchSortDirection.value = 'asc'
+    if (!hasAnyFilterCondition()) {
+      filtersApplied.value = false
+    }
+  }
+
+  pageOffset.value = 0
+  void refreshRows()
 }
 
 function toInputString(value: unknown, field: DictionaryField): string {
@@ -233,6 +378,23 @@ function toInputString(value: unknown, field: DictionaryField): string {
     return String(value)
   }
   return String(value)
+}
+
+function formatEntryValue(value: unknown, field: DictionaryField): string {
+  if (value === undefined || value === null) {
+    return '—'
+  }
+  if (field.isMultivalue && Array.isArray(value)) {
+    return value.map((item) => String(item)).join(', ')
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'true' : 'false'
+  }
+  if (typeof value === 'object') {
+    return JSON.stringify(value)
+  }
+  const text = String(value)
+  return text.length > 120 ? `${text.slice(0, 117)}...` : text
 }
 
 function parseSingleValue(raw: string, field: DictionaryField): unknown {
@@ -299,6 +461,16 @@ function initializeCreateValues(): void {
   createIssues.value = []
 }
 
+function openCreateModal(): void {
+  if (!selectedDictionaryId.value || !canWrite.value) {
+    return
+  }
+  createExternalKey.value = ''
+  initializeCreateValues()
+  createIssues.value = []
+  createModalOpen.value = true
+}
+
 function buildCreateData(): { data: Record<string, unknown>; issues: string[] } {
   const data: Record<string, unknown> = {}
   const issues: string[] = []
@@ -327,20 +499,16 @@ function startEditEntry(entry: Entry): void {
   editOriginal.value = JSON.parse(JSON.stringify(entry.data)) as Record<string, unknown>
 
   const nextValues: Record<string, string> = {}
-  const nextClear: Record<string, boolean> = {}
   for (const field of fields.value) {
     nextValues[field.code] = toInputString(entry.data[field.code], field)
-    nextClear[field.code] = false
   }
   editValues.value = nextValues
-  editClear.value = nextClear
   editIssues.value = []
 }
 
 function clearEntryEditor(): void {
   editEntryId.value = ''
   editValues.value = {}
-  editClear.value = {}
   editOriginal.value = {}
   editIssues.value = []
 }
@@ -354,17 +522,14 @@ function buildEditFinalData(): { final: Record<string, unknown>; issues: string[
   const issues: string[] = []
 
   for (const field of fields.value) {
-    if (editClear.value[field.code]) {
-      delete finalData[field.code]
-      continue
-    }
-
     const raw = editValues.value[field.code] ?? ''
     try {
       const parsed = parseFieldValue(raw, field)
-      if (parsed !== undefined) {
-        finalData[field.code] = parsed
+      if (parsed === undefined) {
+        delete finalData[field.code]
+        continue
       }
+      finalData[field.code] = parsed
     } catch (err) {
       issues.push(formatError(err))
     }
@@ -415,6 +580,54 @@ function enumOptions(field: DictionaryField): string[] {
     .filter((item) => item.length > 0)
 }
 
+function validatorHints(field: DictionaryField): string[] {
+  const hints: string[] = []
+
+  hints.push(`Тип: ${field.dataType}${field.isMultivalue ? ', несколько значений' : ''}`)
+  if (field.required) {
+    hints.push('Обязательное')
+  }
+  if (field.isUnique) {
+    hints.push('Уникальное')
+  }
+
+  const pushNumberHint = (key: string, label: string) => {
+    const value = field.validators[key]
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      hints.push(`${label}: ${value}`)
+    }
+  }
+  const pushStringHint = (key: string, label: string) => {
+    const value = field.validators[key]
+    if (typeof value === 'string' && value.trim() !== '') {
+      hints.push(`${label}: ${value.trim()}`)
+    }
+  }
+
+  pushNumberHint('min', 'Мин')
+  pushNumberHint('max', 'Макс')
+  pushNumberHint('min_length', 'Мин. длина')
+  pushNumberHint('max_length', 'Макс. длина')
+  pushNumberHint('min_items', 'Мин. элементов')
+  pushNumberHint('max_items', 'Макс. элементов')
+  pushStringHint('min_date', 'Дата от')
+  pushStringHint('max_date', 'Дата до')
+  pushStringHint('pattern', 'Формат')
+
+  const allowed = field.validators.allowed_values
+  if (Array.isArray(allowed)) {
+    const values = allowed
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0)
+    if (values.length > 0) {
+      hints.push(`Допустимо: ${values.join(', ')}`)
+    }
+  }
+
+  return hints
+}
+
 function coerceSearchAtom(field: DictionaryField | undefined, raw: string): unknown {
   const trimmed = raw.trim()
   if (trimmed === '') {
@@ -453,6 +666,18 @@ function buildSearchBody(): { body: SearchRequest; issues: string[] } {
   for (let index = 0; index < searchRows.value.length; index += 1) {
     const row = searchRows.value[index]
     const rowNumber = index + 1
+
+    const rowEmpty =
+      row.attribute.trim() === '' &&
+      row.value.trim() === '' &&
+      row.values.trim() === '' &&
+      row.from.trim() === '' &&
+      row.to.trim() === ''
+
+    if (rowEmpty) {
+      continue
+    }
+
     if (!row.attribute) {
       issues.push(`Фильтр ${rowNumber}: выберите атрибут`)
       continue
@@ -479,7 +704,7 @@ function buildSearchBody(): { body: SearchRequest; issues: string[] } {
         }
         case 'range': {
           if (row.from.trim() === '' || row.to.trim() === '') {
-            issues.push(`Фильтр ${rowNumber}: для range заполните from/to`)
+            issues.push(`Фильтр ${rowNumber}: для диапазона заполните поля «От» и «До»`)
             break
           }
           filters.push({
@@ -523,8 +748,8 @@ function buildSearchBody(): { body: SearchRequest; issues: string[] } {
       ? [{ attribute: searchSortAttribute.value, direction: searchSortDirection.value }]
       : undefined,
     page: {
-      limit: searchLimit.value,
-      offset: searchOffset.value,
+      limit: pageLimit.value,
+      offset: pageOffset.value,
     },
   }
 
@@ -564,23 +789,65 @@ async function loadBootData(): Promise<void> {
 async function loadDictionaryWorkspace(): Promise<void> {
   if (!selectedDictionaryId.value) {
     currentSchema.value = []
-    entries.value = []
-    entriesTotal.value = 0
+    rows.value = []
+    rowsTotal.value = 0
     return
   }
 
   try {
-    const [schemaResult, entriesResult] = await Promise.all([
-      mdmApi.getDictionarySchema(selectedDictionaryId.value),
-      mdmApi.listEntries(selectedDictionaryId.value, entriesLimit.value, entriesOffset.value),
-    ])
-
+    const schemaResult = await mdmApi.getDictionarySchema(selectedDictionaryId.value)
     currentSchema.value = schemaResult.attributes
-    entries.value = entriesResult.items
-    entriesTotal.value = entriesResult.total
+    await refreshRows()
   } catch (err) {
     error.value = formatError(err)
   }
+}
+
+async function loadRowsList(): Promise<void> {
+  if (!selectedDictionaryId.value) {
+    rows.value = []
+    rowsTotal.value = 0
+    return
+  }
+
+  const result = await mdmApi.listEntries(selectedDictionaryId.value, pageLimit.value, pageOffset.value)
+  rows.value = result.items
+  rowsTotal.value = result.total
+}
+
+async function runSearch(): Promise<void> {
+  if (!selectedDictionaryId.value) {
+    return
+  }
+
+  searching.value = true
+  clearFeedback()
+  searchIssues.value = []
+
+  try {
+    const built = buildSearchBody()
+    if (built.issues.length > 0) {
+      searchIssues.value = built.issues
+      return
+    }
+
+    const result = await mdmApi.searchEntries(selectedDictionaryId.value, built.body)
+    rows.value = result.items
+    rowsTotal.value = result.total
+    filtersApplied.value = (built.body.filters?.length ?? 0) > 0
+  } catch (err) {
+    error.value = formatError(err)
+  } finally {
+    searching.value = false
+  }
+}
+
+async function refreshRows(): Promise<void> {
+  if (filtersApplied.value || Boolean(searchSortAttribute.value)) {
+    await runSearch()
+    return
+  }
+  await loadRowsList()
 }
 
 async function createEntryFromForm(): Promise<void> {
@@ -604,9 +871,10 @@ async function createEntryFromForm(): Promise<void> {
       data: built.data,
     })
 
+    createModalOpen.value = false
     createExternalKey.value = ''
     initializeCreateValues()
-    await loadDictionaryWorkspace()
+    await refreshRows()
     message.value = 'Объект создан'
   } catch (err) {
     error.value = formatError(err)
@@ -639,32 +907,12 @@ async function saveEntryEdit(): Promise<void> {
 
     await mdmApi.updateEntry(selectedDictionaryId.value, editEntryId.value, patch)
     clearEntryEditor()
-    await loadDictionaryWorkspace()
+    await refreshRows()
     message.value = 'Объект обновлен'
   } catch (err) {
     error.value = formatError(err)
   } finally {
     busy.value = false
-  }
-}
-
-async function refreshEntry(entryId: string): Promise<void> {
-  if (!selectedDictionaryId.value) {
-    return
-  }
-
-  clearFeedback()
-  try {
-    const fresh = await mdmApi.getEntry(selectedDictionaryId.value, entryId)
-    const index = entries.value.findIndex((item) => item.id === entryId)
-    if (index >= 0) {
-      entries.value[index] = fresh
-    }
-    if (editEntryId.value === entryId) {
-      startEditEntry(fresh)
-    }
-  } catch (err) {
-    error.value = formatError(err)
   }
 }
 
@@ -681,10 +929,10 @@ async function removeEntry(entryId: string): Promise<void> {
 
   try {
     await mdmApi.deleteEntry(selectedDictionaryId.value, entryId)
-    await loadDictionaryWorkspace()
     if (editEntryId.value === entryId) {
       clearEntryEditor()
     }
+    await refreshRows()
     message.value = 'Объект удален'
   } catch (err) {
     error.value = formatError(err)
@@ -694,19 +942,32 @@ async function removeEntry(entryId: string): Promise<void> {
 }
 
 function prevPage(): void {
-  if (entriesOffset.value === 0) {
+  if (pageOffset.value === 0) {
     return
   }
-  entriesOffset.value = Math.max(0, entriesOffset.value - entriesLimit.value)
-  void loadDictionaryWorkspace()
+  pageOffset.value = Math.max(0, pageOffset.value - pageLimit.value)
+  void refreshRows()
 }
 
 function nextPage(): void {
-  if (entriesOffset.value + entriesLimit.value >= entriesTotal.value) {
+  if (pageOffset.value + pageLimit.value >= rowsTotal.value) {
     return
   }
-  entriesOffset.value += entriesLimit.value
-  void loadDictionaryWorkspace()
+  pageOffset.value += pageLimit.value
+  void refreshRows()
+}
+
+function goToPage(page: number): void {
+  if (page < 1 || page > pageCount.value || page === currentPage.value) {
+    return
+  }
+  pageOffset.value = (page - 1) * pageLimit.value
+  void refreshRows()
+}
+
+function applyPageSize(): void {
+  pageOffset.value = 0
+  void refreshRows()
 }
 
 function addSearchRow(): void {
@@ -717,124 +978,15 @@ function removeSearchRow(rowId: string): void {
   searchRows.value = searchRows.value.filter((row) => row.row_id !== rowId)
 }
 
-async function runSearch(): Promise<void> {
-  if (!selectedDictionaryId.value) {
-    return
-  }
-
-  searching.value = true
-  clearFeedback()
-  searchIssues.value = []
-
-  try {
-    const built = buildSearchBody()
-    if (built.issues.length > 0) {
-      searchIssues.value = built.issues
-      return
-    }
-    const result = await mdmApi.searchEntries(selectedDictionaryId.value, built.body)
-    searchResult.value = result.items
-    searchTotal.value = result.total
-  } catch (err) {
-    error.value = formatError(err)
-  } finally {
-    searching.value = false
-  }
-}
-
-function prevSearchPage(): void {
-  if (searchOffset.value === 0) {
-    return
-  }
-  searchOffset.value = Math.max(0, searchOffset.value - searchLimit.value)
+function applyFilters(): void {
+  pageOffset.value = 0
   void runSearch()
 }
 
-function nextSearchPage(): void {
-  if (searchOffset.value + searchLimit.value >= searchTotal.value) {
-    return
-  }
-  searchOffset.value += searchLimit.value
-  void runSearch()
-}
-
-async function runGlobalSearch(): Promise<void> {
-  globalSearching.value = true
-  clearFeedback()
-  globalIssues.value = []
-
-  try {
-    if (dictionaries.value.length === 0) {
-      globalRows.value = []
-      globalTotal.value = 0
-      return
-    }
-
-    const perDictionaryLimit = Math.max(1, Math.min(200, Number(globalLimitPerDictionary.value) || 30))
-    globalLimitPerDictionary.value = perDictionaryLimit
-    const query = globalQuery.value.trim().toLowerCase()
-
-    const settled = await Promise.allSettled(
-      dictionaries.value.map(async (dictionary) => {
-        const result = await mdmApi.listEntries(dictionary.id, perDictionaryLimit, 0)
-        return {
-          dictionary,
-          entries: result.items,
-        }
-      }),
-    )
-
-    const rows: GlobalObjectRow[] = []
-    for (const result of settled) {
-      if (result.status === 'rejected') {
-        globalIssues.value.push(formatError(result.reason))
-        continue
-      }
-
-      for (const entry of result.value.entries) {
-        if (query.length > 0) {
-          const text = `${result.value.dictionary.code} ${result.value.dictionary.name} ${
-            entry.external_key || ''
-          } ${JSON.stringify(entry.data)}`.toLowerCase()
-          if (!text.includes(query)) {
-            continue
-          }
-        }
-        rows.push({
-          dictionary: result.value.dictionary,
-          entry,
-        })
-      }
-    }
-
-    rows.sort((left, right) => {
-      const byDictionary = left.dictionary.code.localeCompare(right.dictionary.code, 'ru')
-      if (byDictionary !== 0) {
-        return byDictionary
-      }
-      return (left.entry.external_key || left.entry.id).localeCompare(right.entry.external_key || right.entry.id, 'ru')
-    })
-
-    globalRows.value = rows
-    globalTotal.value = rows.length
-  } catch (err) {
-    error.value = formatError(err)
-  } finally {
-    globalSearching.value = false
-  }
-}
-
-async function openGlobalEntry(row: GlobalObjectRow): Promise<void> {
-  try {
-    if (selectedDictionaryId.value !== row.dictionary.id) {
-      selectedDictionaryId.value = row.dictionary.id
-      await loadDictionaryWorkspace()
-    }
-    const fresh = await mdmApi.getEntry(row.dictionary.id, row.entry.id)
-    startEditEntry(fresh)
-  } catch (err) {
-    error.value = formatError(err)
-  }
+function resetFilters(): void {
+  pageOffset.value = 0
+  resetFiltersState()
+  void loadRowsList()
 }
 
 onMounted(loadBootData)
@@ -845,164 +997,117 @@ onMounted(loadBootData)
     <div class="section-head">
       <div>
         <h1>Объекты</h1>
-        <p class="muted">Создание, просмотр, редактирование и поиск объектов по настроенным схемам справочников.</p>
+        <p class="muted">Создание, поиск, редактирование и отображение объектов выбранного справочника.</p>
       </div>
-      <button class="btn" :disabled="loading || busy" @click="loadBootData">Обновить</button>
     </div>
 
     <p v-if="message" class="alert success">{{ message }}</p>
     <p v-if="error" class="alert error">{{ error }}</p>
 
     <article class="card">
-      <div class="form-inline">
-        <label>
-          Справочник для работы
-          <select v-model="selectedDictionaryId">
-            <option value="">Выберите справочник</option>
-            <option v-for="dictionary in dictionaries" :key="dictionary.id" :value="dictionary.id">
-              {{ dictionary.code }} — {{ dictionary.name }}
-            </option>
-          </select>
-        </label>
-        <RouterLink v-if="selectedDictionary" class="btn" :to="`/dictionaries/${selectedDictionary.id}`">
-          Настроить справочник
-        </RouterLink>
+      <div class="workspace-row workspace-row-compact">
+        <select v-model="selectedDictionaryId" class="workspace-select-control" aria-label="Справочник">
+          <option value="">Выберите справочник</option>
+          <option v-for="dictionary in dictionaries" :key="dictionary.id" :value="dictionary.id">
+            {{ dictionary.code }} — {{ dictionary.name }}
+          </option>
+        </select>
+
+        <div class="workspace-actions workspace-actions-compact">
+          <RouterLink
+            v-if="selectedDictionary"
+            class="btn btn-icon-only"
+            :to="`/dictionaries/${selectedDictionary.id}`"
+            title="Настроить справочник"
+          >
+            <Settings2 :size="16" aria-hidden="true" />
+            <span class="sr-only">Настроить справочник</span>
+          </RouterLink>
+          <button
+            class="btn primary btn-icon-only"
+            title="Создать объект"
+            :disabled="!selectedDictionaryId || !canWrite"
+            @click="openCreateModal"
+          >
+            <Plus :size="16" aria-hidden="true" />
+            <span class="sr-only">Создать объект</span>
+          </button>
+        </div>
       </div>
-      <p v-if="!selectedDictionary" class="muted">Сначала выберите справочник.</p>
-      <p v-else class="muted">
-        Активный справочник: <strong>{{ selectedDictionary.name }}</strong> ({{ selectedDictionary.code }})
-      </p>
     </article>
 
     <article class="card">
-      <div class="card-title-line">
-        <h3>Поиск по всем объектам</h3>
-        <button class="btn primary" :disabled="globalSearching" @click="runGlobalSearch">Искать по всем</button>
+      <div class="card-title-line objects-header-line">
+        <h3>Объекты выбранного справочника ({{ rowsTotal }})</h3>
+        <div class="inline-actions compact-actions objects-header-tools">
+          <button class="btn btn-icon-only" title="Добавить фильтр" :disabled="!selectedDictionaryId" @click="addSearchRow">
+            <Plus :size="16" aria-hidden="true" />
+            <span class="sr-only">Добавить фильтр</span>
+          </button>
+          <button class="btn primary btn-icon-only" title="Применить фильтры" :disabled="!selectedDictionaryId || searching" @click="applyFilters">
+            <RefreshCw :size="16" aria-hidden="true" />
+            <span class="sr-only">Применить фильтры</span>
+          </button>
+          <button class="btn btn-icon-only" title="Сбросить фильтры" :disabled="!selectedDictionaryId" @click="resetFilters">
+            <X :size="16" aria-hidden="true" />
+            <span class="sr-only">Сбросить фильтры</span>
+          </button>
+          <button class="btn btn-icon-only" title="Колонки таблицы" :disabled="!selectedDictionaryId" @click="columnModalOpen = true">
+            <SlidersHorizontal :size="16" aria-hidden="true" />
+            <span class="sr-only">Колонки таблицы</span>
+          </button>
+        </div>
       </div>
-      <p class="muted">
-        Поиск проходит по объектам всех справочников (по `dictionary code/name`, `external_key`, `data`).
-      </p>
-      <div class="form-grid">
-        <label>
-          Текст поиска
-          <input v-model="globalQuery" placeholder="например: Acme, SKU-001, brand" />
-        </label>
-        <label>
-          Лимит объектов на справочник
-          <input v-model.number="globalLimitPerDictionary" type="number" min="1" max="200" />
-        </label>
-      </div>
 
-      <ul v-if="globalIssues.length > 0" class="issue-list">
-        <li v-for="issue in globalIssues" :key="issue">{{ issue }}</li>
-      </ul>
+      <div class="filters-area">
+        <ul v-if="searchIssues.length > 0" class="issue-list">
+          <li v-for="issue in searchIssues" :key="issue">{{ issue }}</li>
+        </ul>
 
-      <div class="card-title-line">
-        <h3>Результаты ({{ globalTotal }})</h3>
-      </div>
-      <div class="table-wrap">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Справочник</th>
-              <th>external_key / id</th>
-              <th>version</th>
-              <th>data</th>
-              <th class="actions">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="globalSearching">
-              <td colspan="5" class="muted">Поиск...</td>
-            </tr>
-            <tr v-if="!globalSearching && globalRows.length === 0">
-              <td colspan="5" class="muted">Нет результатов. Нажмите «Искать по всем».</td>
-            </tr>
-            <tr v-for="row in globalRows" :key="`${row.dictionary.id}:${row.entry.id}`">
-              <td>
-                <RouterLink class="link" :to="`/dictionaries/${row.dictionary.id}`">{{ row.dictionary.code }}</RouterLink>
-              </td>
-              <td>{{ row.entry.external_key || row.entry.id }}</td>
-              <td>{{ row.entry.version }}</td>
-              <td><JsonBox :value="row.entry.data" label="data" /></td>
-              <td class="actions-row">
-                <button class="btn" @click="openGlobalEntry(row)">Открыть в редакторе</button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </article>
+        <div v-if="searchRows.length > 0" class="search-rows">
+          <div v-for="row in searchRows" :key="row.row_id" class="search-row search-row-inline">
+            <select v-model="row.attribute" :disabled="!selectedDictionaryId" aria-label="Атрибут фильтра">
+              <option value="">Выберите атрибут</option>
+              <option v-for="field in fields" :key="field.code" :value="field.code">{{ field.code }}</option>
+            </select>
 
-    <article class="card" :class="{ 'is-disabled': !canWrite }">
-      <div class="card-title-line">
-        <h3>Создать объект</h3>
-      </div>
-      <p class="muted">Форма строится автоматически по схеме выбранного справочника.</p>
+            <select v-model="row.op" :disabled="!selectedDictionaryId" aria-label="Оператор фильтра">
+              <option v-for="option in SEARCH_OPS" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
 
-      <ul v-if="createIssues.length > 0" class="issue-list">
-        <li v-for="issue in createIssues" :key="issue">{{ issue }}</li>
-      </ul>
-
-      <form class="entry-grid" @submit.prevent="createEntryFromForm">
-        <label>
-          external_key
-          <input v-model="createExternalKey" placeholder="SKU-001" :disabled="!selectedDictionaryId || !canWrite || busy" />
-        </label>
-
-        <div v-for="field in fields" :key="field.attributeId" class="entry-field">
-          <label :class="{ required: field.required }">
-            {{ field.name }} <span class="muted">({{ field.code }})</span>
-            <template v-if="field.isMultivalue">
-              <textarea
-                v-model="createValues[field.code]"
-                class="code-area code-area-compact"
-                :placeholder="`каждое значение с новой строки (${field.dataType})`"
-                :disabled="!selectedDictionaryId || !canWrite || busy"
-              ></textarea>
-            </template>
-            <template v-else-if="field.dataType === 'boolean'">
-              <select v-model="createValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
-                <option value="">—</option>
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
-            </template>
-            <template v-else-if="field.dataType === 'enum' && enumOptions(field).length > 0">
-              <select v-model="createValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
-                <option value="">—</option>
-                <option v-for="option in enumOptions(field)" :key="option" :value="option">
-                  {{ option }}
-                </option>
-              </select>
+            <template v-if="row.op === 'range'">
+              <div class="search-range">
+                <input v-model="row.from" placeholder="От" :disabled="!selectedDictionaryId" aria-label="Значение от" />
+                <input v-model="row.to" placeholder="До" :disabled="!selectedDictionaryId" aria-label="Значение до" />
+              </div>
             </template>
             <template v-else>
               <input
-                v-model="createValues[field.code]"
-                :placeholder="field.dataType"
-                :disabled="!selectedDictionaryId || !canWrite || busy"
+                v-if="row.op === 'in'"
+                v-model="row.values"
+                placeholder="Например: a,b,c"
+                :disabled="!selectedDictionaryId"
+                aria-label="Значения фильтра"
+              />
+              <input
+                v-else
+                v-model="row.value"
+                :placeholder="searchValuePlaceholder(row)"
+                :disabled="!selectedDictionaryId"
+                aria-label="Значение фильтра"
               />
             </template>
-          </label>
-        </div>
 
-        <div class="form-actions">
-          <button class="btn primary" :disabled="!selectedDictionaryId || !canWrite || busy || fields.length === 0">
-            Создать объект
-          </button>
-        </div>
-      </form>
-      <p v-if="fields.length === 0" class="muted">Для выбранного справочника не настроены атрибуты в схеме.</p>
-      <p v-if="!canWrite" class="muted">Нет прав на изменение (`mdm_editor` или `mdm_admin`).</p>
-    </article>
-
-    <article class="card">
-      <div class="card-title-line">
-        <h3>Объекты выбранного справочника ({{ entriesTotal }})</h3>
-        <div class="pager">
-          <button class="btn" :disabled="entriesOffset === 0" @click="prevPage">Назад</button>
-          <span>{{ entriesOffset + 1 }}-{{ Math.min(entriesOffset + entriesLimit, entriesTotal) }}</span>
-          <button class="btn" :disabled="entriesOffset + entriesLimit >= entriesTotal" @click="nextPage">Вперед</button>
+            <button
+              class="btn danger btn-icon-only"
+              title="Удалить фильтр"
+              :disabled="!selectedDictionaryId"
+              @click="removeSearchRow(row.row_id)"
+            >
+              <Trash2 :size="16" aria-hidden="true" />
+              <span class="sr-only">Удалить фильтр</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1010,189 +1115,266 @@ onMounted(loadBootData)
         <table class="table">
           <thead>
             <tr>
-              <th>ID</th>
-              <th>external_key</th>
-              <th>version</th>
-              <th class="actions">Actions</th>
+              <th>Ключ объекта</th>
+              <th v-for="field in visibleFields" :key="field.attributeId">
+                <button class="th-sort" :disabled="!selectedDictionaryId" @click="toggleSort(field.code)">
+                  {{ field.name }}
+                  <component :is="sortIconFor(field.code)" :size="14" aria-hidden="true" />
+                </button>
+              </th>
+              <th>Версия</th>
+              <th class="actions">Действия</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-if="loading">
-              <td colspan="4" class="muted">Загрузка...</td>
+            <tr v-if="loading || searching">
+              <td :colspan="visibleFields.length + 3" class="muted">Загрузка...</td>
             </tr>
-            <tr v-for="entry in entries" :key="entry.id">
-              <td><code>{{ entry.id }}</code></td>
-              <td>{{ entry.external_key || '—' }}</td>
+            <tr v-if="!loading && !searching && rows.length === 0">
+              <td :colspan="visibleFields.length + 3" class="muted">Нет объектов для отображения.</td>
+            </tr>
+            <tr v-for="entry in rows" :key="entry.id">
+              <td>
+                <span :title="entry.external_key || `Системный ID: ${entry.id}`">{{ objectKeyLabel(entry) }}</span>
+              </td>
+              <td v-for="field in visibleFields" :key="`${entry.id}:${field.attributeId}`">{{ formatEntryValue(entry.data[field.code], field) }}</td>
               <td>{{ entry.version }}</td>
               <td class="actions-row">
-                <button class="btn" :disabled="!selectedDictionaryId" @click="refreshEntry(entry.id)">Get</button>
-                <button class="btn" :disabled="!canWrite || !selectedDictionaryId" @click="startEditEntry(entry)">Edit</button>
-                <button class="btn danger" :disabled="!canWrite || !selectedDictionaryId" @click="removeEntry(entry.id)">
-                  Delete
+                <button
+                  class="btn btn-icon-only"
+                  title="Изменить объект"
+                  :disabled="!canWrite || !selectedDictionaryId"
+                  @click="startEditEntry(entry)"
+                >
+                  <Pencil :size="16" aria-hidden="true" />
+                  <span class="sr-only">Изменить объект</span>
+                </button>
+                <button
+                  class="btn danger btn-icon-only"
+                  title="Удалить объект"
+                  :disabled="!canWrite || !selectedDictionaryId"
+                  @click="removeEntry(entry.id)"
+                >
+                  <Trash2 :size="16" aria-hidden="true" />
+                  <span class="sr-only">Удалить объект</span>
                 </button>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-    </article>
 
-    <article v-if="editEntryId" class="card" :class="{ 'is-disabled': !canWrite }">
-      <div class="card-title-line">
-        <h3>Редактирование объекта</h3>
-        <span class="pill"><code>{{ editEntryId }}</code></span>
+      <div class="table-pagination objects-pagination">
+        <nav class="pagination-nav objects-pagination-nav" role="navigation" aria-label="pagination">
+          <ul class="pagination-list">
+            <li>
+              <button class="pagination-link pagination-edge" :disabled="pageOffset === 0" @click="prevPage">
+                <ChevronLeft :size="16" aria-hidden="true" />
+                <span class="pagination-edge-text">Назад</span>
+              </button>
+            </li>
+            <li v-for="item in paginationItems" :key="String(item)">
+              <span v-if="item === 'ellipsis-left' || item === 'ellipsis-right'" class="pagination-ellipsis">…</span>
+              <button
+                v-else
+                class="pagination-link"
+                :class="{ active: item === currentPage }"
+                @click="goToPage(item)"
+              >
+                {{ item }}
+              </button>
+            </li>
+            <li>
+              <button class="pagination-link pagination-edge" :disabled="pageOffset + pageLimit >= rowsTotal" @click="nextPage">
+                <span class="pagination-edge-text">Вперед</span>
+                <ChevronRight :size="16" aria-hidden="true" />
+              </button>
+            </li>
+          </ul>
+        </nav>
+
+        <label class="pagination-size objects-pagination-size">
+          На странице
+          <select v-model.number="pageLimit" @change="applyPageSize" :disabled="!selectedDictionaryId">
+            <option :value="20">20</option>
+            <option :value="50">50</option>
+            <option :value="100">100</option>
+          </select>
+        </label>
       </div>
-
-      <ul v-if="editIssues.length > 0" class="issue-list">
-        <li v-for="issue in editIssues" :key="issue">{{ issue }}</li>
-      </ul>
-
-      <form class="entry-grid" @submit.prevent="saveEntryEdit">
-        <div v-for="field in fields" :key="field.attributeId" class="entry-field">
-          <label :class="{ required: field.required }">
-            {{ field.name }} <span class="muted">({{ field.code }})</span>
-            <template v-if="field.isMultivalue">
-              <textarea
-                v-model="editValues[field.code]"
-                class="code-area code-area-compact"
-                :placeholder="`каждое значение с новой строки (${field.dataType})`"
-                :disabled="!selectedDictionaryId || !canWrite || busy"
-              ></textarea>
-            </template>
-            <template v-else-if="field.dataType === 'boolean'">
-              <select v-model="editValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
-                <option value="">—</option>
-                <option value="true">true</option>
-                <option value="false">false</option>
-              </select>
-            </template>
-            <template v-else-if="field.dataType === 'enum' && enumOptions(field).length > 0">
-              <select v-model="editValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
-                <option value="">—</option>
-                <option v-for="option in enumOptions(field)" :key="option" :value="option">
-                  {{ option }}
-                </option>
-              </select>
-            </template>
-            <template v-else>
-              <input
-                v-model="editValues[field.code]"
-                :placeholder="field.dataType"
-                :disabled="!selectedDictionaryId || !canWrite || busy"
-              />
-            </template>
-          </label>
-          <label class="check">
-            <input v-model="editClear[field.code]" type="checkbox" :disabled="!selectedDictionaryId || !canWrite || busy" />
-            Удалить поле из объекта
-          </label>
-        </div>
-
-        <div class="form-actions">
-          <button class="btn primary" :disabled="!selectedDictionaryId || !canWrite || busy">Сохранить изменения</button>
-          <button type="button" class="btn" :disabled="busy" @click="clearEntryEditor">Отмена</button>
-        </div>
-      </form>
     </article>
 
-    <article class="card">
-      <div class="card-title-line">
-        <h3>Фильтруемый поиск по выбранному справочнику</h3>
+    <div v-if="columnModalOpen" class="modal-backdrop">
+      <article class="modal-card modal-card-compact">
+        <div class="card-title-line">
+          <h3>Колонки таблицы</h3>
+          <button type="button" class="btn btn-icon-only" title="Закрыть" @click="columnModalOpen = false">
+            <X :size="16" aria-hidden="true" />
+            <span class="sr-only">Закрыть</span>
+          </button>
+        </div>
+
         <div class="inline-actions">
-          <button class="btn" :disabled="!selectedDictionaryId" @click="addSearchRow">Добавить фильтр</button>
-          <button class="btn primary" :disabled="!selectedDictionaryId || searching" @click="runSearch">Искать</button>
+          <button type="button" class="btn" @click="showAllColumns">Показать все</button>
+          <button type="button" class="btn" @click="restoreColumnDefaults">По умолчанию</button>
         </div>
-      </div>
 
-      <ul v-if="searchIssues.length > 0" class="issue-list">
-        <li v-for="issue in searchIssues" :key="issue">{{ issue }}</li>
-      </ul>
+        <div class="column-grid column-grid-modal">
+          <label v-for="field in fields" :key="field.attributeId" class="check">
+            <input v-model="columnVisibility[field.code]" type="checkbox" />
+            {{ field.name }} ({{ field.code }})
+          </label>
+        </div>
+      </article>
+    </div>
 
-      <div class="search-rows">
-        <div v-for="row in searchRows" :key="row.row_id" class="search-row">
+    <div v-if="createModalOpen" class="modal-backdrop">
+      <article class="modal-card" :class="{ 'is-disabled': !canWrite }">
+        <div class="card-title-line">
+          <h3>Создание объекта</h3>
+          <button type="button" class="btn btn-icon-only" title="Закрыть" :disabled="busy" @click="createModalOpen = false">
+            <X :size="16" aria-hidden="true" />
+            <span class="sr-only">Закрыть</span>
+          </button>
+        </div>
+
+        <ul v-if="createIssues.length > 0" class="issue-list">
+          <li v-for="issue in createIssues" :key="issue">{{ issue }}</li>
+        </ul>
+
+        <form class="entry-grid" @submit.prevent="createEntryFromForm">
           <label>
-            Атрибут
-            <select v-model="row.attribute" :disabled="!selectedDictionaryId">
-              <option value="">Выберите атрибут</option>
-              <option v-for="field in fields" :key="field.code" :value="field.code">
-                {{ field.code }}
-              </option>
-            </select>
+            Внешний ключ (external_key)
+            <input v-model="createExternalKey" placeholder="SKU-001" :disabled="!selectedDictionaryId || !canWrite || busy" />
           </label>
 
-          <label>
-            Оператор
-            <select v-model="row.op" :disabled="!selectedDictionaryId">
-              <option v-for="option in SEARCH_OPS" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </label>
-
-          <label v-if="row.op === 'in'" class="full">
-            Values (через запятую/новую строку)
-            <textarea v-model="row.values" class="code-area code-area-compact" :disabled="!selectedDictionaryId"></textarea>
-          </label>
-
-          <template v-else-if="row.op === 'range'">
+          <div v-for="field in fields" :key="field.attributeId" class="entry-field">
             <label>
-              From
-              <input v-model="row.from" :disabled="!selectedDictionaryId" />
+              <span class="field-title">
+                {{ field.name }} <span class="muted">({{ field.code }})</span>
+                <span v-if="field.required" class="required-mark">*</span>
+              </span>
+              <template v-if="field.isMultivalue">
+                <textarea
+                  v-model="createValues[field.code]"
+                  class="code-area code-area-compact"
+                  :placeholder="`каждое значение с новой строки (${field.dataType})`"
+                  :disabled="!selectedDictionaryId || !canWrite || busy"
+                ></textarea>
+              </template>
+              <template v-else-if="field.dataType === 'boolean'">
+                <select v-model="createValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
+                  <option value="">—</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </template>
+              <template v-else-if="field.dataType === 'enum' && enumOptions(field).length > 0">
+                <select v-model="createValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
+                  <option value="">—</option>
+                  <option v-for="option in enumOptions(field)" :key="option" :value="option">
+                    {{ option }}
+                  </option>
+                </select>
+              </template>
+              <template v-else>
+                <input
+                  v-model="createValues[field.code]"
+                  :placeholder="field.dataType"
+                  :disabled="!selectedDictionaryId || !canWrite || busy"
+                />
+              </template>
             </label>
-            <label>
-              To
-              <input v-model="row.to" :disabled="!selectedDictionaryId" />
-            </label>
-          </template>
+            <p class="validator-hints">{{ validatorHints(field).join(' · ') }}</p>
+          </div>
 
-          <label v-else class="full">
-            Value
-            <input v-model="row.value" :disabled="!selectedDictionaryId" />
-          </label>
+          <div class="form-actions">
+            <button class="btn primary" :disabled="!selectedDictionaryId || !canWrite || busy || fields.length === 0">
+              <Plus class="btn-icon" :size="16" aria-hidden="true" />
+              Создать объект
+            </button>
+            <button type="button" class="btn" :disabled="busy" @click="createModalOpen = false">
+              <X class="btn-icon" :size="16" aria-hidden="true" />
+              Отмена
+            </button>
+          </div>
+        </form>
+      </article>
+    </div>
 
+    <div v-if="editEntryId" class="modal-backdrop">
+      <article class="modal-card" :class="{ 'is-disabled': !canWrite }">
+        <div class="card-title-line">
+          <h3>Редактирование объекта</h3>
           <div class="inline-actions">
-            <button class="btn danger" :disabled="!selectedDictionaryId" @click="removeSearchRow(row.row_id)">Удалить</button>
+            <span class="pill"><code>{{ editEntryId }}</code></span>
+            <button type="button" class="btn btn-icon-only" title="Закрыть" :disabled="busy" @click="clearEntryEditor">
+              <X :size="16" aria-hidden="true" />
+              <span class="sr-only">Закрыть</span>
+            </button>
           </div>
         </div>
-      </div>
 
-      <div class="search-toolbar">
-        <label>
-          Sort by
-          <select v-model="searchSortAttribute" :disabled="!selectedDictionaryId">
-            <option value="">Без сортировки</option>
-            <option v-for="field in fields" :key="field.code" :value="field.code">
-              {{ field.code }}
-            </option>
-          </select>
-        </label>
-        <label>
-          Direction
-          <select v-model="searchSortDirection" :disabled="!selectedDictionaryId">
-            <option value="asc">asc</option>
-            <option value="desc">desc</option>
-          </select>
-        </label>
-        <label>
-          Limit
-          <input v-model.number="searchLimit" type="number" min="1" max="500" :disabled="!selectedDictionaryId" />
-        </label>
-      </div>
+        <ul v-if="editIssues.length > 0" class="issue-list">
+          <li v-for="issue in editIssues" :key="issue">{{ issue }}</li>
+        </ul>
+        <p class="muted modal-note">
+          Чтобы очистить необязательное поле, оставьте его пустым и сохраните изменения.
+        </p>
 
-      <div class="card-title-line">
-        <h3>Результаты поиска ({{ searchTotal }})</h3>
-        <div class="pager">
-          <button class="btn" :disabled="searchOffset === 0" @click="prevSearchPage">Назад</button>
-          <span>{{ searchOffset + 1 }}-{{ Math.min(searchOffset + searchLimit, searchTotal) }}</span>
-          <button class="btn" :disabled="searchOffset + searchLimit >= searchTotal" @click="nextSearchPage">Вперед</button>
-        </div>
-      </div>
+        <form class="entry-grid" @submit.prevent="saveEntryEdit">
+          <div v-for="field in fields" :key="field.attributeId" class="entry-field">
+            <label>
+              <span class="field-title">
+                {{ field.name }} <span class="muted">({{ field.code }})</span>
+                <span v-if="field.required" class="required-mark">*</span>
+              </span>
+              <template v-if="field.isMultivalue">
+                <textarea
+                  v-model="editValues[field.code]"
+                  class="code-area code-area-compact"
+                  :placeholder="`каждое значение с новой строки (${field.dataType})`"
+                  :disabled="!selectedDictionaryId || !canWrite || busy"
+                ></textarea>
+              </template>
+              <template v-else-if="field.dataType === 'boolean'">
+                <select v-model="editValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
+                  <option value="">—</option>
+                  <option value="true">true</option>
+                  <option value="false">false</option>
+                </select>
+              </template>
+              <template v-else-if="field.dataType === 'enum' && enumOptions(field).length > 0">
+                <select v-model="editValues[field.code]" :disabled="!selectedDictionaryId || !canWrite || busy">
+                  <option value="">—</option>
+                  <option v-for="option in enumOptions(field)" :key="option" :value="option">
+                    {{ option }}
+                  </option>
+                </select>
+              </template>
+              <template v-else>
+                <input
+                  v-model="editValues[field.code]"
+                  :placeholder="field.dataType"
+                  :disabled="!selectedDictionaryId || !canWrite || busy"
+                />
+              </template>
+            </label>
+            <p class="validator-hints">{{ validatorHints(field).join(' · ') }}</p>
+          </div>
 
-      <div v-if="searchResult.length === 0" class="muted">Результатов пока нет.</div>
-      <div v-for="entry in searchResult" :key="entry.id" class="result-item">
-        <p><strong>{{ entry.external_key || entry.id }}</strong> <span class="muted">(v{{ entry.version }})</span></p>
-        <JsonBox :value="entry.data" label="data" />
-      </div>
-    </article>
+          <div class="form-actions">
+            <button class="btn primary" :disabled="!selectedDictionaryId || !canWrite || busy">
+              <Pencil class="btn-icon" :size="16" aria-hidden="true" />
+              Сохранить изменения
+            </button>
+            <button type="button" class="btn" :disabled="busy" @click="clearEntryEditor">
+              <X class="btn-icon" :size="16" aria-hidden="true" />
+              Отмена
+            </button>
+          </div>
+        </form>
+      </article>
+    </div>
   </section>
 </template>

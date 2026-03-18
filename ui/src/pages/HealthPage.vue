@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { RefreshCw } from 'lucide-vue-next'
 
 import JsonBox from '../components/JsonBox.vue'
 import { type Readiness, mdmApi } from '../lib/api'
@@ -32,10 +33,13 @@ onMounted(load)
     <section>
         <div class="section-head">
             <div>
-                <h1>Health</h1>
-                <p class="muted">Проверка доступности сервиса и зависимостей.</p>
+                <h1>Состояние сервиса</h1>
+                <p class="muted">Проверка доступности API и ключевых зависимостей.</p>
             </div>
-            <button class="btn" :disabled="loading" @click="load">Обновить</button>
+            <button class="btn" :disabled="loading" @click="load">
+                <RefreshCw class="btn-icon" :size="16" aria-hidden="true" />
+                Обновить
+            </button>
         </div>
 
         <p v-if="error" class="alert error">{{ error }}</p>

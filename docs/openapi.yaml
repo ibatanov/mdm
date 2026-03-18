@@ -1,11 +1,15 @@
 openapi: 3.0.3
 info:
   title: MDM/PIM API (MVP)
-  version: 0.3.0
+  version: 0.3.1
   description: |
     Актуальная спецификация REST API для MDM/PIM (текущий этап реализации).
     MDM backend находится за доверенным gateway (Keycloak) и принимает заголовки `X-User-Id` и `X-User-Role`.
     Заголовок `X-Request-Id` опционален: при отсутствии или невалидном UUID сервер генерирует его автоматически.
+    Актуализировано по результатам e2e backend тестирования от 2026-03-17.
+  x-known-limitations:
+    - Сортировка в `POST /dictionaries/{dictionary_id}/entries/search` выполняется по строковому значению `(data ->> attribute)` и может отличаться от числовой сортировки.
+    - При `DELETE /dictionaries/{dictionary_id}` возможно логирование ошибки записи audit-события при успешном HTTP 204.
 servers:
   - url: /api/v1
 
@@ -838,6 +842,7 @@ components:
           type: boolean
         is_multivalue:
           type: boolean
+          description: Если true, значение атрибута в объекте должно быть JSON-массивом.
         position:
           type: integer
     SchemaUpdate:
@@ -926,6 +931,7 @@ components:
 
     SearchRequest:
       type: object
+      description: Поиск и фильтрация объектов справочника.
       properties:
         filters:
           type: array
@@ -946,38 +952,45 @@ components:
           type: string
         op:
           type: string
-          description: eq, ne, lt, lte, gt, gte, in, contains, prefix, range
+          enum: [eq, ne, lt, lte, gt, gte, in, contains, prefix, range]
         value:
-          type: object
-          additionalProperties: true
+          description: Поле для операций eq/ne/lt/lte/gt/gte/contains/prefix.
         values:
           type: array
+          description: Непустой массив значений для операции in.
           items:
-            type: object
-            additionalProperties: true
+            description: Любое JSON-значение.
         from:
-          type: object
-          additionalProperties: true
+          description: Нижняя граница для операции range.
         to:
-          type: object
-          additionalProperties: true
+          description: Верхняя граница для операции range.
 
     Sort:
       type: object
       properties:
         attribute:
           type: string
+          description: Код атрибута, по которому выполняется сортировка.
         direction:
           type: string
           enum: [asc, desc]
+          description: Направление сортировки; при отсутствии используется asc.
+      description: |
+        Сортировка выполняется по текстовому представлению значения JSON-поля (`data ->> attribute`).
+        Для числовых атрибутов это может отличаться от числовой сортировки.
 
     PageParams:
       type: object
       properties:
         limit:
           type: integer
+          minimum: 1
+          maximum: 500
+          default: 50
         offset:
           type: integer
+          minimum: 0
+          default: 0
 
     AuditEvent:
       type: object
