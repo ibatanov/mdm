@@ -74,53 +74,6 @@ CREATE INDEX IF NOT EXISTS entries_dictionary_idx
 CREATE INDEX IF NOT EXISTS entries_data_gin_idx
   ON entries USING GIN (data);
 
--- Нормализованные значения атрибутов для динамических фильтров
-CREATE TABLE IF NOT EXISTS entry_values (
-  entry_id UUID NOT NULL,
-  dictionary_id UUID NOT NULL,
-  attribute_id UUID NOT NULL,
-  value_text TEXT,
-  value_num NUMERIC,
-  value_date DATE,
-  value_bool BOOLEAN,
-  value_ref UUID,
-  value_json JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CONSTRAINT entry_values_entry_fk
-    FOREIGN KEY (entry_id) REFERENCES entries (id),
-  CONSTRAINT entry_values_dictionary_fk
-    FOREIGN KEY (dictionary_id) REFERENCES dictionaries (id),
-  CONSTRAINT entry_values_attribute_fk
-    FOREIGN KEY (attribute_id) REFERENCES attributes (id),
-  CONSTRAINT entry_values_one_value_chk
-    CHECK (
-      (value_text IS NOT NULL)::int +
-      (value_num IS NOT NULL)::int +
-      (value_date IS NOT NULL)::int +
-      (value_bool IS NOT NULL)::int +
-      (value_ref IS NOT NULL)::int +
-      (value_json IS NOT NULL)::int = 1
-    )
-);
-
-CREATE INDEX IF NOT EXISTS entry_values_dictionary_attribute_idx
-  ON entry_values (dictionary_id, attribute_id);
-
-CREATE INDEX IF NOT EXISTS entry_values_text_idx
-  ON entry_values (dictionary_id, attribute_id, value_text);
-
-CREATE INDEX IF NOT EXISTS entry_values_num_idx
-  ON entry_values (dictionary_id, attribute_id, value_num);
-
-CREATE INDEX IF NOT EXISTS entry_values_date_idx
-  ON entry_values (dictionary_id, attribute_id, value_date);
-
-CREATE INDEX IF NOT EXISTS entry_values_bool_idx
-  ON entry_values (dictionary_id, attribute_id, value_bool);
-
-CREATE INDEX IF NOT EXISTS entry_values_ref_idx
-  ON entry_values (dictionary_id, attribute_id, value_ref);
-
 -- Аудит изменений
 CREATE TABLE IF NOT EXISTS audit_events (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -169,4 +122,3 @@ CREATE INDEX IF NOT EXISTS outbox_unpublished_idx
 
 -- Примечание по партиционированию:
 -- Для 100 млн+ объектов рассмотрите партиционирование entries по хэшу dictionary_id.
--- Аналогично можно партиционировать entry_values по dictionary_id.
