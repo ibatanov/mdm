@@ -1,11 +1,4 @@
 .DS_Store
 .cache/
-
-infra/volumes/postgres/*
-!infra/volumes/postgres/.gitkeep
-
-infra/volumes/postgres-test/*
-!infra/volumes/postgres-test/.gitkeep
-
-infra/volumes/kafka/*
-!infra/volumes/kafka/.gitkeep
+.vscode
+infra/*

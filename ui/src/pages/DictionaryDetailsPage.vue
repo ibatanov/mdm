@@ -95,6 +95,7 @@ const editorType = computed<Attribute['data_type']>(() => editorAttribute.value?
 const editorReferenceDictionaryId = computed(() => editorAttribute.value?.ref_dictionary_id ?? '')
 
 const referenceDefaultOptions = ref<ReferenceDefaultOption[]>([])
+const referenceDefaultOptionCache = ref<Record<string, ReferenceDefaultOption>>({})
 const referenceDefaultLoading = ref(false)
 const referenceDefaultError = ref('')
 const referenceDefaultSearch = ref('')
@@ -113,6 +114,7 @@ watch(
     async ([isOpen, type, , refDictionaryId]) => {
         if (!isOpen || type !== 'reference' || !refDictionaryId) {
             referenceDefaultOptions.value = []
+            referenceDefaultOptionCache.value = {}
             referenceDefaultError.value = ''
             referenceDefaultLoading.value = false
             referenceDefaultSearch.value = ''
@@ -271,6 +273,9 @@ async function searchReferenceDefaultOptions(referenceDictionaryId: string, quer
                 label: summary === '—' ? `${prefix} (${item.id})` : `${prefix} (${item.id}) — ${summary}`,
             }
         })
+        for (const option of referenceDefaultOptions.value) {
+            referenceDefaultOptionCache.value[option.id] = option
+        }
     } catch (err) {
         if (referenceDefaultSearchSeq.value !== seq) {
             return
@@ -314,6 +319,26 @@ function filteredReferenceDefaultOptions(): ReferenceDefaultOption[] {
     return referenceDefaultOptions.value.filter((option) => option.label.toLowerCase().includes(query))
 }
 
+function visibleReferenceDefaultOptions(): ReferenceDefaultOption[] {
+    const current = filteredReferenceDefaultOptions()
+    const selectedIds = editorSelectedReferenceDefaultIds()
+    const selectedOptions = selectedIds.map((id) => {
+        return current.find((option) => option.id === id) ?? referenceDefaultOptionCache.value[id] ?? { id, label: id }
+    })
+
+    const merged = [...selectedOptions, ...current]
+    const deduplicated: ReferenceDefaultOption[] = []
+    const seen = new Set<string>()
+    for (const option of merged) {
+        if (seen.has(option.id)) {
+            continue
+        }
+        seen.add(option.id)
+        deduplicated.push(option)
+    }
+    return deduplicated
+}
+
 function makeNextPosition(): number {
     if (schemaRows.value.length === 0) {
         return 10
@@ -340,6 +365,7 @@ function resetEditorFields(): void {
     editor.min_items = ''
     editor.max_items = ''
     referenceDefaultSearch.value = ''
+    referenceDefaultOptionCache.value = {}
 }
 
 function closeEditor(): void {
@@ -993,11 +1019,11 @@ onMounted(loadWorkspace)
                         <input v-model="referenceDefaultSearch" placeholder="Поиск значения справочника" :disabled="referenceDefaultLoading" />
                         <select v-model="editor.default_text" :disabled="referenceDefaultLoading">
                             <option value="">Не задано</option>
-                            <option v-for="option in filteredReferenceDefaultOptions()" :key="option.id" :value="option.id">
+                            <option v-for="option in visibleReferenceDefaultOptions()" :key="option.id" :value="option.id">
                                 {{ option.label }}
                             </option>
                         </select>
-                        <span v-if="!referenceDefaultLoading && filteredReferenceDefaultOptions().length === 0" class="muted">
+                        <span v-if="!referenceDefaultLoading && visibleReferenceDefaultOptions().length === 0" class="muted">
                             Нет значений по фильтру
                         </span>
                         <span v-if="referenceDefaultLoading" class="muted">Загрузка значений связанного справочника…</span>
@@ -1007,7 +1033,7 @@ onMounted(loadWorkspace)
                         Значение по умолчанию
                         <input v-model="referenceDefaultSearch" placeholder="Поиск значения справочника" :disabled="referenceDefaultLoading" />
                         <div class="reference-options-list">
-                            <label v-for="option in filteredReferenceDefaultOptions()" :key="option.id" class="check reference-option">
+                            <label v-for="option in visibleReferenceDefaultOptions()" :key="option.id" class="check reference-option">
                                 <input
                                     type="checkbox"
                                     :checked="isEditorReferenceDefaultSelected(option.id)"
@@ -1016,7 +1042,7 @@ onMounted(loadWorkspace)
                                 />
                                 {{ option.label }}
                             </label>
-                            <span v-if="filteredReferenceDefaultOptions().length === 0" class="muted">
+                            <span v-if="visibleReferenceDefaultOptions().length === 0" class="muted">
                                 Нет значений по фильтру
                             </span>
                         </div>
